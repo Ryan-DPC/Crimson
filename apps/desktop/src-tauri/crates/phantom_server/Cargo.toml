@@ -1,0 +1,17 @@
+[package]
+name = "phantom_server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lcu_commands = { path = "../lcu_commands" }
+tauri = { version = "2.10.3", features = [] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.21.0", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+rustls = "0.22"
+http = "1.0"
+base64 = "0.21"

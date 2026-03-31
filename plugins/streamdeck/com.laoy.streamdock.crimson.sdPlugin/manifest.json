@@ -1,0 +1,54 @@
+{
+  "Actions": [
+    {
+      "Icon": "static/icon/accept",
+      "Name": "Auto-Accept (Toggle)",
+      "States": [
+        {
+          "Image": "static/icon/accept",
+          "Title": "OFF"
+        },
+        {
+          "Image": "static/icon/accept",
+          "Title": "ON"
+        }
+      ],
+      "UUID": "com.laoy.streamdock.crimson.autoaccept"
+    },
+    {
+      "Icon": "static/icon/dodge",
+      "Name": "Dodge Game",
+      "UUID": "com.laoy.streamdock.crimson.dodge"
+    },
+    {
+      "Icon": "static/icon/stats",
+      "Name": "Stats / Champion",
+      "UUID": "com.laoy.streamdock.crimson.display"
+    },
+    {
+      "Icon": "static/icon/autoban",
+      "Name": "Auto-Ban (Toggle)",
+      "UUID": "com.laoy.streamdock.crimson.autoban"
+    },
+    {
+      "Icon": "static/icon/autopick",
+      "Name": "Auto-Pick (Toggle)",
+      "UUID": "com.laoy.streamdock.crimson.autopick"
+    },
+    {
+      "Icon": "static/icon/inject",
+      "Name": "Inject Rune Build",
+      "UUID": "com.laoy.streamdock.crimson.inject"
+    }
+  ],
+  "Author": "Laoy",
+  "Description": "CRIMSON League of Legends Controller",
+  "Icon": "static/icon/accept",
+  "Name": "CRIMSON",
+  "Version": "2.0",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "2.0"
+  },
+  "CodePath": "plugin/index.html"
+}
