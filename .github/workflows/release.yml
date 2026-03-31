@@ -5,11 +5,13 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   release:
-    permissions:
-      contents: write
     runs-on: windows-latest
+
 
     steps:
       - name: Checkout
