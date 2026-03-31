@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useLCU } from '../../contexts/LCUContext';
-import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download } from 'lucide-react';
 
 const SettingsTab = () => {
     const { appData, updateGeminiKey } = useLCU();
@@ -8,7 +9,10 @@ const SettingsTab = () => {
     const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
     const [isEditingKey, setIsEditingKey] = useState(!appData?.geminiApiKey);
 
-    // Sync state if appData changes externally
+    // --- Update state ---
+    const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
+    const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+
     useEffect(() => {
         if (appData?.geminiApiKey) {
             setKeyInput(appData.geminiApiKey);
@@ -18,14 +22,36 @@ const SettingsTab = () => {
 
     const handleVerify = () => {
         setStatus('loading');
-        // Save the key
         updateGeminiKey(keyInput);
-        
-        // Simulate a small delay for the UX confirmation
         setTimeout(() => {
             setStatus('success');
             setTimeout(() => setStatus('idle'), 3000);
         }, 800);
+    };
+
+    const handleCheckUpdate = async () => {
+        setUpdateStatus('checking');
+        try {
+            const version = await invoke<string | null>('check_for_update');
+            if (version) {
+                setAvailableVersion(version);
+                setUpdateStatus('available');
+            } else {
+                setUpdateStatus('up-to-date');
+                setTimeout(() => setUpdateStatus('idle'), 4000);
+            }
+        } catch {
+            setUpdateStatus('idle');
+        }
+    };
+
+    const handleInstallUpdate = async () => {
+        setUpdateStatus('installing');
+        try {
+            await invoke('install_update');
+        } catch {
+            setUpdateStatus('available');
+        }
     };
 
     return (
@@ -92,6 +118,46 @@ const SettingsTab = () => {
                     </div>
                 </div>
 
+                {/* Updates */}
+                <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl">
+                    <div className="flex items-center gap-3 mb-6">
+                        <RefreshCw className={`w-5 h-5 text-red-500 ${updateStatus === 'checking' || updateStatus === 'installing' ? 'animate-spin' : ''}`} />
+                        <h3 className="text-sm font-black text-white uppercase tracking-widest">Mises à Jour</h3>
+                        <span className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-widest">v0.1.0</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <div>
+                            {updateStatus === 'idle' && <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest">Vérifiez si une nouvelle version est disponible.</p>}
+                            {updateStatus === 'checking' && <p className="text-white/50 text-[10px] uppercase font-bold tracking-widest animate-pulse">Vérification en cours...</p>}
+                            {updateStatus === 'up-to-date' && <p className="text-green-500 text-[10px] uppercase font-black tracking-widest">✓ Vous êtes à jour !</p>}
+                            {updateStatus === 'available' && <p className="text-red-400 text-[10px] uppercase font-black tracking-widest">🚀 Version <span className="text-white">{availableVersion}</span> disponible !</p>}
+                            {updateStatus === 'installing' && <p className="text-blue-400 text-[10px] uppercase font-black tracking-widest animate-pulse">Téléchargement... L'app va redémarrer automatiquement.</p>}
+                        </div>
+                        <div className="flex gap-3">
+                            {updateStatus === 'available' && (
+                                <button
+                                    onClick={handleInstallUpdate}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+                                >
+                                    <Download className="w-3.5 h-3.5" />
+                                    Installer
+                                </button>
+                            )}
+                            {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'checking') && (
+                                <button
+                                    onClick={handleCheckUpdate}
+                                    disabled={updateStatus === 'checking'}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                                    Vérifier
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
                 {/* Notifications & Prefs */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl">
@@ -128,7 +194,7 @@ const SettingsTab = () => {
                                 </div>
                             </div>
                             <div className="flex items-center justify-between">
-                                <span className="text-[10px} font-bold text-white/60 uppercase tracking-widest">Animations Reduites</span>
+                                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Animations Reduites</span>
                                 <div className="w-10 h-5 bg-white/10 rounded-full relative">
                                     <div className="absolute left-1 top-1 w-3 h-3 bg-white/40 rounded-full" />
                                 </div>
