@@ -31,6 +31,7 @@ interface LCUContextType {
     toggleAutoBan: (id: number) => Promise<void>;
     toggleAutoPick: (id: number) => Promise<void>;
     updateGeminiKey: (key: string) => Promise<void>;
+    updateSetting: (key: string, value: boolean) => Promise<void>;
     doImport: (build: RuneBuild, index: number) => Promise<void>;
     handleSecondaryClick: (buildIndex: number, runeId: number, slotIndex: number) => void;
     handleShardClick: (buildIndex: number, rIdx: number, shardId: number) => void;
@@ -411,6 +412,13 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAppData(d);
     };
 
+    const updateSetting = async (key: string, value: boolean) => {
+        const d = await invoke<any>('get_app_data');
+        d[key] = value;
+        await invoke('set_app_data', { data: d });
+        setAppData(d);
+    };
+
     const doImport = async (build: RuneBuild, index: number) => {
         if (!build || build.primaryStyleId === 0) return;
         setIsImporting(index);
@@ -461,7 +469,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return (
         <LCUContext.Provider value={{
             sum, lobbyState, lobbyMyTeam, lobbyTheirTeam, radar, gamePhase, rank, hist, champs, runesData: runesDataJson, v, myChamp, enemyMid, isLoadingBuilds, builds, isImporting, appData,
-            setTab, toggleSimMode, simMode, tab, toggleAutoBan, toggleAutoPick, updateGeminiKey, doImport, handleSecondaryClick, handleShardClick
+            setTab, toggleSimMode, simMode, tab, toggleAutoBan, toggleAutoPick, updateGeminiKey, updateSetting, doImport, handleSecondaryClick, handleShardClick
         }}>
             {children}
         </LCUContext.Provider>

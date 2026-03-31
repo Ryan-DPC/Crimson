@@ -1,10 +1,31 @@
 import { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { useLCU } from '../../contexts/LCUContext';
-import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download } from 'lucide-react';
+import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download, Zap } from 'lucide-react';
+
+// Reusable animated toggle component
+const Toggle = ({ value, onChange, label, description }: {
+    value: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+    description?: string;
+}) => (
+    <div className="flex items-center justify-between py-3 border-b border-white/5 last:border-0">
+        <div className="flex flex-col">
+            <span className="text-[11px] font-bold text-white/70 uppercase tracking-widest">{label}</span>
+            {description && <span className="text-[9px] text-white/30 mt-0.5">{description}</span>}
+        </div>
+        <button
+            onClick={() => onChange(!value)}
+            className={`relative w-10 h-5 rounded-full transition-all duration-300 focus:outline-none ${value ? 'bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.4)]' : 'bg-white/10'}`}
+        >
+            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${value ? 'left-5' : 'left-0.5'}`} />
+        </button>
+    </div>
+);
 
 const SettingsTab = () => {
-    const { appData, updateGeminiKey } = useLCU();
+    const { appData, updateGeminiKey, updateSetting } = useLCU();
     const [keyInput, setKeyInput] = useState(appData?.geminiApiKey || '');
     const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
     const [isEditingKey, setIsEditingKey] = useState(!appData?.geminiApiKey);
@@ -71,7 +92,7 @@ const SettingsTab = () => {
 
             <div className="grid grid-cols-1 gap-6">
                 {/* AI Configuration */}
-                <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl relative overflow-hidden group">
+                <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-5">
                         <Cpu className="w-24 h-24" />
                     </div>
@@ -81,54 +102,52 @@ const SettingsTab = () => {
                             <h3 className="text-sm font-black text-white uppercase tracking-widest">Intelligence Artificielle</h3>
                         </div>
                         <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mb-6 leading-relaxed max-w-md">
-                            Configurez votre clé API Gemini pour bénéficier des analyses de draft en temps réel et des suggestions de runes dynamiques.
+                            Clé API Gemini pour les analyses de draft en temps réel et les suggestions de runes dynamiques.
                         </p>
                         <div className="flex flex-col gap-2 max-w-lg">
                             <label className="text-[9px] text-white/20 uppercase font-black tracking-widest mb-1">Google Gemini API Key</label>
-                                {!isEditingKey ? (
-                                    <div className="flex items-center gap-3 w-full bg-green-500/10 border border-green-500/20 px-4 py-3 rounded-xl transition-all cursor-pointer group" onClick={() => setIsEditingKey(true)}>
-                                        <div className="flex-1 text-green-500/80 text-xs font-mono tracking-widest">••••••••••••••••••••••••••••••••••</div>
-                                        <div className="flex items-center gap-2 text-green-500">
-                                            <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-green-400">Opérationnelle</span>
-                                            <Check className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                                        </div>
+                            {!isEditingKey ? (
+                                <div className="flex items-center gap-3 w-full bg-green-500/10 border border-green-500/20 px-4 py-3 rounded-xl cursor-pointer group" onClick={() => setIsEditingKey(true)}>
+                                    <div className="flex-1 text-green-500/80 text-xs font-mono tracking-widest">••••••••••••••••••••••••••••••••••</div>
+                                    <div className="flex items-center gap-2 text-green-500">
+                                        <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-green-400">Opérationnelle</span>
+                                        <Check className="w-4 h-4" />
                                     </div>
-                                ) : (
-                                    <div className="flex gap-3 w-full">
-                                        <input 
-                                            type="password"
-                                            value={keyInput}
-                                            onChange={(e) => setKeyInput(e.target.value)}
-                                            placeholder="COLLEZ VOTRE CLÉ ICI..."
-                                            className="flex-1 bg-black/40 border border-white/5 px-4 py-3 text-xs font-mono focus:border-red-500/50 outline-none text-white/50 transition-all rounded-xl"
-                                        />
-                                        <button 
-                                            onClick={handleVerify}
-                                            disabled={status === 'loading' || !keyInput}
-                                            className={`px-6 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
-                                                status === 'success' ? 'bg-green-600/20 text-green-500 border border-green-500/30' : 
-                                                'bg-white/5 hover:bg-white/10 border border-white/10 text-white/60'
-                                            }`}
-                                        >
-                                            {status === 'loading' && <Loader2 className="w-4 h-4 animate-spin" />}
-                                            {status === 'success' && <Check className="w-4 h-4" />}
-                                            {status === 'idle' && "Vérifier"}
-                                            {status !== 'idle' && status !== 'success' && "Vérifier"}
-                                        </button>
-                                    </div>
-                                )}
+                                </div>
+                            ) : (
+                                <div className="flex gap-3 w-full">
+                                    <input 
+                                        type="password"
+                                        value={keyInput}
+                                        onChange={(e) => setKeyInput(e.target.value)}
+                                        placeholder="COLLEZ VOTRE CLÉ ICI..."
+                                        className="flex-1 bg-black/40 border border-white/5 px-4 py-3 text-xs font-mono focus:border-red-500/50 outline-none text-white/50 transition-all rounded-xl"
+                                    />
+                                    <button 
+                                        onClick={handleVerify}
+                                        disabled={status === 'loading' || !keyInput}
+                                        className={`px-6 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                                            status === 'success' ? 'bg-green-600/20 text-green-500 border border-green-500/30' : 
+                                            'bg-white/5 hover:bg-white/10 border border-white/10 text-white/60'
+                                        }`}
+                                    >
+                                        {status === 'loading' && <Loader2 className="w-4 h-4 animate-spin" />}
+                                        {status === 'success' && <Check className="w-4 h-4" />}
+                                        {status === 'idle' ? "Vérifier" : status === 'success' ? "Sauvegardé" : "Vérifier"}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
 
-                {/* Updates */}
+                {/* Mises à Jour */}
                 <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl">
                     <div className="flex items-center gap-3 mb-6">
                         <RefreshCw className={`w-5 h-5 text-red-500 ${updateStatus === 'checking' || updateStatus === 'installing' ? 'animate-spin' : ''}`} />
                         <h3 className="text-sm font-black text-white uppercase tracking-widest">Mises à Jour</h3>
                         <span className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-widest">v0.1.0</span>
                     </div>
-
                     <div className="flex items-center justify-between">
                         <div>
                             {updateStatus === 'idle' && <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest">Vérifiez si une nouvelle version est disponible.</p>}
@@ -139,48 +158,39 @@ const SettingsTab = () => {
                         </div>
                         <div className="flex gap-3">
                             {updateStatus === 'available' && (
-                                <button
-                                    onClick={handleInstallUpdate}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]"
-                                >
-                                    <Download className="w-3.5 h-3.5" />
-                                    Installer
+                                <button onClick={handleInstallUpdate} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                                    <Download className="w-3.5 h-3.5" /> Installer
                                 </button>
                             )}
                             {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'checking') && (
-                                <button
-                                    onClick={handleCheckUpdate}
-                                    disabled={updateStatus === 'checking'}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    <RefreshCw className={`w-3.5 h-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
-                                    Vérifier
+                                <button onClick={handleCheckUpdate} disabled={updateStatus === 'checking'} className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">
+                                    <RefreshCw className={`w-3.5 h-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} /> Vérifier
                                 </button>
                             )}
                         </div>
                     </div>
                 </div>
 
-                {/* Notifications & Prefs */}
+                {/* Notifications & Automation */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-[#111115] border border-white/5 p-8 rounded-2xl shadow-2xl">
                         <div className="flex items-center gap-3 mb-6">
                             <Bell className="w-5 h-5 text-red-500" />
-                            <h3 className="text-sm font-black text-white uppercase tracking-widest">Notifications</h3>
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest">Automation</h3>
                         </div>
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Auto-Accept Alert</span>
-                                <div className="w-10 h-5 bg-red-600 rounded-full relative">
-                                    <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full shadow-sm" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between opacity-50">
-                                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Draft Warnings</span>
-                                <div className="w-10 h-5 bg-white/10 rounded-full relative">
-                                    <div className="absolute left-1 top-1 w-3 h-3 bg-white/40 rounded-full" />
-                                </div>
-                            </div>
+                        <div>
+                            <Toggle
+                                label="Auto-Accept"
+                                description="Accepte automatiquement les matchs"
+                                value={appData?.autoAccept ?? true}
+                                onChange={(v) => updateSetting('autoAccept', v)}
+                            />
+                            <Toggle
+                                label="Draft Warnings"
+                                description="Alertes sur les mauvais picks alliés"
+                                value={appData?.draftWarnings ?? true}
+                                onChange={(v) => updateSetting('draftWarnings', v)}
+                            />
                         </div>
                     </div>
 
@@ -189,20 +199,41 @@ const SettingsTab = () => {
                             <Eye className="w-5 h-5 text-red-500" />
                             <h3 className="text-sm font-black text-white uppercase tracking-widest">Interface</h3>
                         </div>
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Dark Glass Mode</span>
-                                <div className="w-10 h-5 bg-red-600 rounded-full relative">
-                                    <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full shadow-sm" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Animations Reduites</span>
-                                <div className="w-10 h-5 bg-white/10 rounded-full relative">
-                                    <div className="absolute left-1 top-1 w-3 h-3 bg-white/40 rounded-full" />
-                                </div>
-                            </div>
+                        <div>
+                            <Toggle
+                                label="Dark Glass Mode"
+                                description="Design glassmorphism premium"
+                                value={appData?.darkGlassMode ?? true}
+                                onChange={(v) => updateSetting('darkGlassMode', v)}
+                            />
+                            <Toggle
+                                label="Animations Réduites"
+                                description="Désactive les effets de transition"
+                                value={appData?.reducedAnimations ?? false}
+                                onChange={(v) => updateSetting('reducedAnimations', v)}
+                            />
                         </div>
+                    </div>
+                </div>
+
+                {/* About */}
+                <div className="bg-[#111115] border border-white/5 p-6 rounded-2xl shadow-2xl">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-black rounded-full border border-white/10">
+                            <Zap className="w-5 h-5 text-red-500 fill-red-500/20" />
+                        </div>
+                        <div>
+                            <p className="text-xs font-black text-white/50 uppercase tracking-widest">Crimson • v0.1.0</p>
+                            <p className="text-[9px] text-white/20 uppercase tracking-widest mt-0.5">by Ryan — Powered by Tauri + Rust + React</p>
+                        </div>
+                        <a 
+                            href="https://github.com/Ryan-DPC/Crimson" 
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-auto text-[9px] font-black text-white/20 hover:text-white/60 uppercase tracking-widest transition-colors"
+                        >
+                            GitHub →
+                        </a>
                     </div>
                 </div>
             </div>

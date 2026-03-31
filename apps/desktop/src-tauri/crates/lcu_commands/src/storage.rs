@@ -34,7 +34,16 @@ pub struct AppData {
     pub remembered_auto_ban: Option<u64>,
     #[serde(default)]
     pub remembered_auto_pick: Option<u64>,
+
+    #[serde(default = "default_true")]
+    pub draft_warnings: bool,
+    #[serde(default = "default_true")]
+    pub dark_glass_mode: bool,
+    #[serde(default)]
+    pub reduced_animations: bool,
 }
+
+fn default_true() -> bool { true }
 
 impl Default for AppData {
     fn default() -> Self {
@@ -49,6 +58,9 @@ impl Default for AppData {
             hist: None,
             remembered_auto_ban: None,
             remembered_auto_pick: None,
+            draft_warnings: true,
+            dark_glass_mode: true,
+            reduced_animations: false,
         }
     }
 }
