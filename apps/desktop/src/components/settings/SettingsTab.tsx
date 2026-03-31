@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { check } from '@tauri-apps/plugin-updater';
 import { useLCU } from '../../contexts/LCUContext';
 import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download } from 'lucide-react';
 
@@ -32,9 +32,9 @@ const SettingsTab = () => {
     const handleCheckUpdate = async () => {
         setUpdateStatus('checking');
         try {
-            const version = await invoke<string | null>('check_for_update');
-            if (version) {
-                setAvailableVersion(version);
+            const update = await check();
+            if (update) {
+                setAvailableVersion(update.version);
                 setUpdateStatus('available');
             } else {
                 setUpdateStatus('up-to-date');
@@ -48,7 +48,10 @@ const SettingsTab = () => {
     const handleInstallUpdate = async () => {
         setUpdateStatus('installing');
         try {
-            await invoke('install_update');
+            const update = await check();
+            if (update) {
+                await update.downloadAndInstall();
+            }
         } catch {
             setUpdateStatus('available');
         }
