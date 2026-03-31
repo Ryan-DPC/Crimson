@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use serde::{Serialize, Deserialize};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;

@@ -2,11 +2,9 @@ use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
-use tokio::sync::broadcast;
 use tauri::{AppHandle, Manager};
-use serde_json::{json, Value};
+use serde_json::json;
 use lcu_commands::storage;
-use lcu_commands::lcu;
 use lcu_commands::events::WsSender;
 
 pub async fn start_ws_server(handle: AppHandle) {
