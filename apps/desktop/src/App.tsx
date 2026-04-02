@@ -21,7 +21,7 @@ import {
 function App() {
   const { 
     tab, setTab, simMode, toggleSimMode, 
-    gamePhase, rank, sum 
+    gamePhase, rank, sum, appData 
   } = useLCU();
 
   const [appVersion, setAppVersion] = useState<string>('0.0.0');
@@ -64,7 +64,7 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#050505] text-white selection:bg-red-500/30 font-sans overflow-hidden">
+    <div className={`flex flex-col h-screen bg-[#050505] text-white selection:bg-red-500/30 font-sans overflow-hidden ${appData?.darkGlassMode ? 'dark-glass' : ''} ${appData?.reducedAnimations ? 'reduced-animations' : ''}`}>
       {/* Top Navigation Bar / Window Draggable Region */}
       <header data-tauri-drag-region className="flex items-center justify-between px-6 py-4 bg-[#050505] border-b border-white/5 z-50 select-none">
         <div data-tauri-drag-region className="flex items-center gap-4">

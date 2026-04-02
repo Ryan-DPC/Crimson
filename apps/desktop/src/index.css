@@ -52,3 +52,30 @@ body {
   z-index: 100;
   animation: scanline 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
+/* Reduced Animations Support */
+.reduced-animations *,
+.reduced-animations *::before,
+.reduced-animations *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
+
+/* Dark Glass Mode Support */
+.dark-glass {
+  --glass-bg: rgba(5, 5, 5, 0.95);
+  --glass-blur: 20px;
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+.dark-glass .backdrop-blur-xl,
+.dark-glass .backdrop-blur-sm,
+.dark-glass .bg-white\/5,
+.dark-glass .bg-black\/60 {
+  background-color: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: var(--glass-border) !important;
+}
+
