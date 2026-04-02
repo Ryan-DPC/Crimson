@@ -3,6 +3,7 @@ import TeamCell from './TeamCell';
 import RuneBuildBox from './RuneBuildBox';
 import { useLCU } from '../../contexts/LCUContext';
 import { getChampName } from '../../utils/lolDisplay';
+import { RefreshCw } from 'lucide-react';
 
 const PHASE_TRANSLATE: Record<string, string> = {
     'PLANNING': 'Déclaration',
@@ -127,83 +128,16 @@ const LobbyTab = () => {
         <div className="w-full h-full flex flex-col overflow-hidden bg-[#050507]/40 backdrop-blur-sm relative">
             {activeChampId !== 0 && <div key={scanKey} className="scanning-line" />}
             
-            {/* Top Section: Team Draft (Portraits + Bans) - Now anchored to the Top */}
-            <div className="w-full bg-[#0a0a0c]/60 border-b border-white/5 pt-4 pb-2 px-6 shrink-0 relative z-20 shadow-2xl">
-                <div className="w-full max-w-[1400px] mx-auto flex justify-between items-start gap-6">
-                    {/* Blue Team Side */}
-                    <div className="flex flex-1 items-start gap-3 min-w-0">
-                        <div className="flex flex-1 gap-1.5 min-w-0 overflow-hidden">
-                            {activeMyTeam.length > 0 ? activeMyTeam.map((p, i) => (
-                                <TeamCell key={i} p={p} isBlue={true} forceMockMe={simMode && p.cellId === 2} />
-                            )) : [1, 2, 3, 4, 5].map(i => <div key={i} className="flex-1 min-w-0 max-w-[5.2rem] aspect-[20/28] h-auto bg-white/5 border border-white/5 rounded-sm" />)}
-                        </div>
-
-                        {/* Blue Team Bans */}
-                        <div className="flex flex-col gap-1 shrink-0 pt-1">
-                            <span className="text-[6px] text-blue-500/40 font-black uppercase tracking-widest text-center">Bans</span>
-                            <div className="flex gap-1">
-                                {[0, 1, 2, 3, 4].map(idx => {
-                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.type === 'ban' && a.actorCellId === idx && a.completed);
-                                    return (
-                                        <div key={idx} className="w-6 h-6 bg-black/40 border border-white/10 flex items-center justify-center grayscale opacity-60 overflow-hidden rounded shadow-inner shrink-0">
-                                            {ban && ban.championId > 0 && (
-                                                <img src={`https://ddragon.leagueoflegends.com/cdn/${lobbyState?.v || '15.5.1'}/img/champion/${champs.find((c: any) => c.id === ban.championId)?.alias || getChampName(ban.championId, champs)}.png`} className="w-full h-full object-cover" alt="" />
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Center: Timer & Phase Info */}
-                    <div className="text-center px-4 shrink-0 flex flex-col items-center justify-center gap-1 min-w-[180px] h-full pt-2">
-                        <div className="text-4xl font-black text-white font-mono tracking-tighter drop-shadow-xl leading-none">
-                            {simMode ? '30' : (lobbyState?.timer?.displayTime !== undefined ? Math.max(0, Math.floor(lobbyState.timer.displayTime / 1000)) : (lobbyState?.timer?.adjustedTimeLeftInPhase ? Math.max(0, Math.floor(lobbyState.timer.adjustedTimeLeftInPhase / 1000)) : '--'))}
-                        </div>
-                        <div className="text-[8px] text-red-500/80 font-black uppercase tracking-[0.3em] mt-1 bg-red-500/5 border border-red-500/20 px-3 py-1 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.1)]">
-                            {simMode ? 'BAN / PICK' : (PHASE_TRANSLATE[lobbyState?.timer?.phase] || lobbyState?.timer?.phase || 'ATTENTE')}
-                        </div>
-                    </div>
-
-                    {/* Red Team Side */}
-                    <div className="flex flex-1 flex-row-reverse items-start gap-3 min-w-0">
-                        <div className="flex flex-1 flex-row-reverse gap-1.5 min-w-0 overflow-hidden">
-                            {activeTheirTeam.length > 0 ? activeTheirTeam.map((p, i) => (
-                                <TeamCell key={i} p={p} isBlue={false} />
-                            )) : [1, 2, 3, 4, 5].map(i => <div key={i} className="flex-1 min-w-0 max-w-[5.2rem] aspect-[20/28] h-auto bg-white/5 border border-white/5 rounded-sm" />)}
-                        </div>
-
-                        {/* Red Team Bans */}
-                        <div className="flex flex-col gap-1 shrink-0 pt-1">
-                            <span className="text-[6px] text-red-500/40 font-black uppercase tracking-widest text-center">Bans</span>
-                            <div className="flex gap-1 flex-row-reverse">
-                                {[5, 6, 7, 8, 9].map(idx => {
-                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.type === 'ban' && a.actorCellId === idx && a.completed);
-                                    return (
-                                        <div key={idx} className="w-6 h-6 bg-black/40 border border-white/10 flex items-center justify-center grayscale opacity-60 overflow-hidden rounded shadow-inner shrink-0">
-                                            {ban && ban.championId > 0 && (
-                                                <img src={`https://ddragon.leagueoflegends.com/cdn/${lobbyState?.v || '15.5.1'}/img/champion/${champs.find((c: any) => c.id === ban.championId)?.alias || getChampName(ban.championId, champs)}.png`} className="w-full h-full object-cover" alt="" />
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Middle/Bottom Section: Champion Info + AI Builds Analysis */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Top/Middle Section: Champion Info + AI Builds Analysis (Flexible area) */}
+            <div className="flex-1 overflow-y-auto px-6 py-6 animate-in fade-in slide-in-from-top-4 duration-700 custom-scrollbar">
                 <div className="w-full max-w-7xl mx-auto h-full flex flex-col">
-                    <div className="border-b border-white/5 pb-2 mb-4 flex justify-between items-end">
+                    <div className="border-b border-white/5 pb-3 mb-6 flex justify-between items-end">
                         <div className="flex flex-col">
-                            <span className="text-red-500/60 text-[9px] font-black uppercase tracking-[0.4em] mb-1">
-                                {simMode ? 'Aperçu Simulation' : 'Champion Actuellement Sélectionné'}
+                            <span className="text-red-500/60 text-[9px] font-black uppercase tracking-[0.4em] mb-1.5">
+                                {simMode ? 'Aperçu Simulation' : (activeChampId === 0 ? 'Attente de Sélection' : 'Champion Actuellement Sélectionné')}
                             </span>
-                            <h2 key={activeChampId} className="text-3xl font-black text-white uppercase tracking-tighter leading-none flex items-center gap-4">
-                                {getSimChampName(activeChampId)}
+                            <h2 key={activeChampId} className="text-4xl font-black text-white uppercase tracking-tighter leading-none flex items-center gap-4">
+                                {activeChampId === 0 ? '--' : getSimChampName(activeChampId)}
                                 {isLoadingBuilds && <span className="text-[10px] text-red-500 animate-pulse font-bold bg-red-500/5 px-2 py-1 rounded border border-red-500/20 normal-case tracking-normal">AI Analyzing Meta...</span>}
                             </h2>
                         </div>
@@ -234,10 +168,84 @@ const LobbyTab = () => {
                         )}
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 pt-2 pb-8">
-                        {activeBuilds.map((b, i) => (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 pt-2 pb-12">
+                        {activeBuilds.length > 0 ? activeBuilds.map((b, i) => (
                             <RuneBuildBox key={i} b={b} i={i} />
-                        ))}
+                        )) : (
+                            <div className="col-span-full h-full border border-dashed border-white/5 rounded-3xl flex items-center justify-center min-h-[400px]">
+                                <div className="flex flex-col items-center gap-4 text-white/10 select-none">
+                                    <RefreshCw className="w-12 h-12" />
+                                    <span className="text-xs font-black uppercase tracking-[0.5em]">Attente des données du client...</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom Section: Team Draft (Portraits + Bans) - Now anchored to the Bottom */}
+            <div className="w-full bg-[#0a0a0c]/80 border-t border-white/10 pt-4 pb-4 px-8 shrink-0 relative z-20 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] backdrop-blur-md">
+                <div className="w-full max-w-[1500px] mx-auto flex justify-between items-center gap-8">
+                    {/* Blue Team Side */}
+                    <div className="flex flex-1 items-center gap-4 min-w-0">
+                        <div className="flex flex-1 gap-2 min-w-0 overflow-hidden">
+                            {activeMyTeam.length > 0 ? activeMyTeam.map((p, i) => (
+                                <TeamCell key={i} p={p} isBlue={true} forceMockMe={simMode && p.cellId === 2} />
+                            )) : [1, 2, 3, 4, 5].map(i => <div key={i} className="flex-1 min-w-0 max-w-[5.8rem] aspect-[20/28] h-auto bg-white/5 border border-white/5 rounded-md" />)}
+                        </div>
+
+                        {/* Blue Team Bans */}
+                        <div className="flex flex-col gap-2 shrink-0">
+                            <span className="text-[7px] text-blue-500/60 font-black uppercase tracking-widest text-center">Bans</span>
+                            <div className="flex gap-1.5 ">
+                                {[0, 1, 2, 3, 4].map(idx => {
+                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.type === 'ban' && a.actorCellId === idx && a.completed);
+                                    return (
+                                        <div key={idx} className="w-8 h-8 bg-black/60 border border-white/10 flex items-center justify-center grayscale opacity-60 overflow-hidden rounded-md shadow-inner shrink-0 scale-90">
+                                            {ban && ban.championId > 0 && (
+                                                <img src={`https://ddragon.leagueoflegends.com/cdn/${lobbyState?.v || '15.5.1'}/img/champion/${champs.find((c: any) => c.id === ban.championId)?.alias || getChampName(ban.championId, champs)}.png`} className="w-full h-full object-cover" alt="" />
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Center: Timer & Phase Info */}
+                    <div className="text-center px-6 shrink-0 flex flex-col items-center justify-center gap-2 min-w-[200px] bg-red-600/5 border-x border-red-600/10 py-2">
+                        <div className="text-5xl font-black text-neutral-100 font-mono tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] leading-none italic">
+                            {simMode ? '30' : (lobbyState?.timer?.displayTime !== undefined ? Math.max(0, Math.floor(lobbyState.timer.displayTime / 1000)) : (lobbyState?.timer?.adjustedTimeLeftInPhase ? Math.max(0, Math.floor(lobbyState.timer.adjustedTimeLeftInPhase / 1000)) : '--'))}
+                        </div>
+                        <div className="text-[9px] text-red-500 font-black uppercase tracking-[0.4em] bg-red-500/10 border border-red-500/20 px-4 py-1.5 rounded-sm shadow-xl">
+                            {simMode ? 'BAN / PICK' : (PHASE_TRANSLATE[lobbyState?.timer?.phase] || lobbyState?.timer?.phase || 'ATTENTE')}
+                        </div>
+                    </div>
+
+                    {/* Red Team Side */}
+                    <div className="flex flex-1 flex-row-reverse items-center gap-4 min-w-0">
+                        <div className="flex flex-1 flex-row-reverse gap-2 min-w-0 overflow-hidden">
+                            {activeTheirTeam.length > 0 ? activeTheirTeam.map((p, i) => (
+                                <TeamCell key={i} p={p} isBlue={false} />
+                            )) : [1, 2, 3, 4, 5].map(i => <div key={i} className="flex-1 min-w-0 max-w-[5.8rem] aspect-[20/28] h-auto bg-white/5 border border-white/5 rounded-md" />)}
+                        </div>
+
+                        {/* Red Team Bans */}
+                        <div className="flex flex-col gap-2 shrink-0">
+                            <span className="text-[7px] text-red-500/60 font-black uppercase tracking-widest text-center">Bans</span>
+                            <div className="flex gap-1.5 flex-row-reverse">
+                                {[5, 6, 7, 8, 9].map(idx => {
+                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.type === 'ban' && a.actorCellId === idx && a.completed);
+                                    return (
+                                        <div key={idx} className="w-8 h-8 bg-black/60 border border-white/10 flex items-center justify-center grayscale opacity-60 overflow-hidden rounded-md shadow-inner shrink-0 scale-90">
+                                            {ban && ban.championId > 0 && (
+                                                <img src={`https://ddragon.leagueoflegends.com/cdn/${lobbyState?.v || '15.5.1'}/img/champion/${champs.find((c: any) => c.id === ban.championId)?.alias || getChampName(ban.championId, champs)}.png`} className="w-full h-full object-cover" alt="" />
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
