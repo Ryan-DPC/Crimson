@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { useLCU } from '../../contexts/LCUContext';
+import { getVersion } from '@tauri-apps/api/app';
 import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download, Zap } from 'lucide-react';
 
 // Reusable animated toggle component
@@ -33,6 +34,19 @@ const SettingsTab = () => {
     // --- Update state ---
     const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
     const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+    const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
+
+    useEffect(() => {
+        const fetchVersion = async () => {
+            try {
+                const v = await getVersion();
+                setCurrentVersion(v);
+            } catch (e) {
+                console.error("Failed to get version", e);
+            }
+        };
+        fetchVersion();
+    }, []);
 
     useEffect(() => {
         if (appData?.geminiApiKey) {
@@ -146,7 +160,7 @@ const SettingsTab = () => {
                     <div className="flex items-center gap-3 mb-6">
                         <RefreshCw className={`w-5 h-5 text-red-500 ${updateStatus === 'checking' || updateStatus === 'installing' ? 'animate-spin' : ''}`} />
                         <h3 className="text-sm font-black text-white uppercase tracking-widest">Mises à Jour</h3>
-                        <span className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-widest">v0.1.0</span>
+                        <span className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-widest">v{currentVersion}</span>
                     </div>
                     <div className="flex items-center justify-between">
                         <div>
@@ -223,7 +237,7 @@ const SettingsTab = () => {
                             <Zap className="w-5 h-5 text-red-500 fill-red-500/20" />
                         </div>
                         <div>
-                            <p className="text-xs font-black text-white/50 uppercase tracking-widest">Crimson • v0.1.0</p>
+                            <p className="text-xs font-black text-white/50 uppercase tracking-widest">Crimson • v{currentVersion}</p>
                             <p className="text-[9px] text-white/20 uppercase tracking-widest mt-0.5">by Ryan — Powered by Tauri + Rust + React</p>
                         </div>
                         <a 

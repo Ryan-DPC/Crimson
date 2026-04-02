@@ -1,4 +1,8 @@
+import { useState, useEffect } from 'react';
 import { useLCU } from './contexts/LCUContext';
+import { getVersion } from '@tauri-apps/api/app';
+import { check, type Update } from '@tauri-apps/plugin-updater';
+
 
 // Components
 import HomeTab from './components/home/HomeTab';
@@ -11,7 +15,7 @@ import DebugTab from './components/debug/DebugTab';
 import { 
   Home, History, Swords, Settings, Bug, 
   ShieldAlert, Cpu, 
-  Activity, Zap
+  Activity, Zap, RefreshCw
 } from 'lucide-react';
 
 function App() {
@@ -19,6 +23,33 @@ function App() {
     tab, setTab, simMode, toggleSimMode, 
     gamePhase, rank, sum 
   } = useLCU();
+
+  const [appVersion, setAppVersion] = useState<string>('0.0.0');
+  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
+
+  useEffect(() => {
+    const initApp = async () => {
+      // Get real version
+      try {
+        const v = await getVersion();
+        setAppVersion(v);
+      } catch (e) {
+        console.error('Failed to get version:', e);
+      }
+
+      // Check for updates automatically
+      try {
+        const update = await check();
+        if (update) {
+          setUpdateAvailable(update);
+        }
+      } catch (e) {
+        console.warn('Update check failed:', e);
+      }
+    };
+
+    initApp();
+  }, []);
 
   const handleWindowCommand = async (command: 'minimize' | 'maximize' | 'close') => {
     try {
@@ -139,6 +170,27 @@ function App() {
           {tab === 'settings' && <SettingsTab />}
           {tab === 'debug' && <DebugTab />}
         </div>
+        
+        {/* Automatic Update Toast/Alert */}
+        {updateAvailable && (
+          <div className="fixed bottom-20 right-8 z-[100] animate-in slide-in-from-right-8 duration-500">
+            <div className="bg-[#111115] border border-red-500/30 p-4 rounded-2xl shadow-2xl flex items-center gap-4">
+              <div className="p-2 bg-red-600/10 rounded-xl border border-red-500/20">
+                <RefreshCw className="w-4 h-4 text-red-500 animate-spin-slow" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Update Available</span>
+                <span className="text-[9px] text-white/40 uppercase">Version {updateAvailable.version} is ready</span>
+              </div>
+              <button 
+                onClick={() => setTab('settings')}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all"
+              >
+                Go to Settings
+              </button>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Modern Status Footer */}
@@ -146,7 +198,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <Cpu className="w-3.5 h-3.5 text-white/20" />
-            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">1.0.0 Crimson</span>
+            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">{appVersion} Crimson</span>
           </div>
         </div>
 
