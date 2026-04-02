@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CRIMSON",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "identifier": "com.laoy.crimson",
   "build": {
     "frontendDist": "../dist",
@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1NDE3Rjg1RjBBMjMzNTgKUldSWU02THdoWDlCbGJyaEhSNFpzSmhXV0pmV2s0RENPZ2YwU2RmMG81YlZrTFhhUXFsS0hOV3EK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5MUYzMkM3QTM4NzIxN0QKUldSOUlZZWp4eklmZVVxWTI0dU1HdFVIUDUyZ1V4OTN5bDBEZ2NzQVVWMzgyYU16WEp5K2o1RFkK",
       "endpoints": [
         "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
       ],
@@ -49,4 +49,3 @@
     }
   }
 }
-
