@@ -89,7 +89,7 @@ const LobbyTab = () => {
     const activeBuilds = simMode ? simBuilds : builds;
     const activeMyTeam = simMode ? simMyTeam : lobbyMyTeam;
     const activeTheirTeam = simMode ? simTheirTeam : lobbyTheirTeam;
-    const activeCounters = (simMode ? simBuilds[1].counters : builds.find(b => b.counters)?.counters) || [];
+    const activeCounters = (simMode ? simBuilds[1].counters : builds.find(b => b?.counters)?.counters) || [];
     const activeChampId = simMode ? 517 : myChamp;
 
     const [scanKey, setScanKey] = useState(0);
