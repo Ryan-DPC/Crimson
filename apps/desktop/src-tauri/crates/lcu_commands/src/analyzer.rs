@@ -31,9 +31,7 @@ pub struct RuneBuild {
 }
 
 #[tauri::command]
-pub async fn fetch_dynamic_runes(app: AppHandle, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>) -> Result<Vec<RuneBuild>, String> {
-    println!("=== Fetching builds for '{}' [{}] vs {:?} (Patch: {:?}) ===", champion_name, role, opponent, patch);
-
+pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>, index: i32) -> Result<RuneBuild, String> {
     let normalized_role = match role.to_lowercase().as_str() {
         "top" => "top",
         "jungle" => "jungle",
@@ -43,76 +41,62 @@ pub async fn fetch_dynamic_runes(app: AppHandle, champion_name: String, role: St
         _ => "mid",
     };
 
-    // Selective Caching Logic: 
-    // Build 1 (Standard) and Build 3 (Scaling) are cached if patch is known.
-    // Build 2 (Counter) is ALWAYS live when an opponent is provided.
-    
-    let mut builds = vec![None, None, None]; // Placeholder for 3 builds
     let current_patch = patch.unwrap_or_else(|| "15.5.1".to_string());
-
     let pool = app.state::<crate::db::DbPool>();
-    let cached_map = crate::db::get_cached_runes(&pool, &champion_name, &normalized_role, &current_patch).unwrap_or_default();
-    
-    // Load Build 1 & 3 from cache if available
-    if let Some(data) = cached_map.get(&1) {
-        if let Ok(b) = serde_json::from_str::<RuneBuild>(data) {
-            builds[0] = Some(b);
-        }
-    }
-    if let Some(data) = cached_map.get(&3) {
-        if let Ok(b) = serde_json::from_str::<RuneBuild>(data) {
-            builds[2] = Some(b);
+
+    // 1. Check Cache (only for index 1 and 3)
+    if index == 1 || index == 3 {
+        let cached_map = crate::db::get_cached_runes(&pool, &champion_name, &normalized_role, &current_patch).unwrap_or_default();
+        if let Some(data) = cached_map.get(&index) {
+            if let Ok(b) = serde_json::from_str::<RuneBuild>(data) {
+                return Ok(b);
+            }
         }
     }
 
-    // If Build 1, 2 (if opp) or 3 are missing, we fetch from Gemini
-    let needs_gemini = builds[0].is_none() || builds[2].is_none() || (opponent.is_some() && builds[1].is_none());
-
-    if !needs_gemini {
-        println!("Returning selective cached builds");
-        return Ok(builds.into_iter().flatten().collect());
-    }
-
-    let mut builds = Vec::new();
-
-    // 1. Try Gemini AI (primary source — most accurate, champion-specific)
+    // 2. Fetch from Gemini
     let data = storage::load_data(&app);
     let key = data.gemini_api_key.unwrap_or_default();
     
     if !key.is_empty() {
-        println!("Fetching Gemini builds for {} vs {:?}...", champion_name, opponent);
-        match fetch_gemini(&key, &champion_name, normalized_role, opponent.clone()).await {
-            Ok(gemini_builds) => {
-                println!("Gemini: Got {} builds", gemini_builds.len());
-                
-                // Selective Save to Persistent Cache
-                for (idx, b) in gemini_builds.iter().enumerate() {
-                    let build_idx = (idx + 1) as i32;
-                    // Only cache Build 1 (Standard) and 3 (Scaling)
-                    if build_idx == 1 || build_idx == 3 {
-                        if let Ok(data) = serde_json::to_string(b) {
-                            let _ = crate::db::save_rune_cache(&pool, &champion_name, &normalized_role, &current_patch, build_idx, &data);
-                        }
+        let build_type = match index {
+            1 => "Most Popular/Meta",
+            2 => "Situational Counter",
+            3 => "Scaling/Late Game",
+            _ => "Standard",
+        };
+
+        match fetch_gemini_single(&key, &champion_name, normalized_role, opponent.clone(), build_type).await {
+            Ok(b) => {
+                // Save to Cache if index 1 or 3
+                if index == 1 || index == 3 {
+                    if let Ok(serialized) = serde_json::to_string(&b) {
+                        let _ = crate::db::save_rune_cache(&pool, &champion_name, &normalized_role, &current_patch, index, &serialized);
                     }
                 }
-                
-                return Ok(gemini_builds);
+                return Ok(b);
             }
             Err(e) => {
-                println!("Gemini failed: {}", e);
+                println!("Gemini single fetch failed for index {}: {}", index, e);
             }
         }
-    } else {
-        println!("No Gemini API key configured - skipping AI builds");
     }
 
-    // 2. If Gemini returned nothing, use meta presets (role-specific, not generic)
-    if builds.is_empty() {
-        println!("Using role-based meta presets for {} [{}]", champion_name, normalized_role);
-        let mut presets = get_meta_presets(normalized_role);
-        builds.append(&mut presets);
-    }
+    // 3. Fallback to Meta Presets
+    let presets = get_meta_presets(normalized_role);
+    let fallback_idx = (index as usize - 1) % presets.len();
+    Ok(presets[fallback_idx].clone())
+}
 
+#[tauri::command]
+pub async fn fetch_dynamic_runes(app: AppHandle, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>) -> Result<Vec<RuneBuild>, String> {
+    // Deprecated wrapper for backward compatibility or bulk fetches
+    let mut builds = Vec::new();
+    for i in 1..=3 {
+        if let Ok(b) = fetch_single_build(app.clone(), champion_name.clone(), role.clone(), opponent.clone(), patch.clone(), i).await {
+            builds.push(b);
+        }
+    }
     Ok(builds)
 }
 
@@ -231,21 +215,25 @@ fn get_meta_presets(role: &str) -> Vec<RuneBuild> {
     }
 }
 
-async fn fetch_gemini(api_key: &str, champion: &str, role: &str, opponent: Option<String>) -> Result<Vec<RuneBuild>, String> {
+async fn fetch_gemini_single(api_key: &str, champion: &str, role: &str, opponent: Option<String>, build_type: &str) -> Result<RuneBuild, String> {
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(20)) // Increased for complex reasoning
+        .timeout(std::time::Duration::from_secs(30)) // Lowered timeout for single build
         .build()
         .map_err(|e| e.to_string())?;
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}", api_key);
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={}", api_key);
     
+    // Mask key for logging
+    let masked_key = if api_key.len() > 8 {
+        format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
+    } else {
+        "***".to_string()
+    };
+
     let opponent_context_name = opponent.as_deref().unwrap_or("the enemy team");
 
     let prompt = format!(
-        "Return ONLY a JSON array of EXACTLY 3 rune builds for {champion} {role} (Current Patch). No markdown or text. \
-        Build 1: 'Most Popular/Meta'. \
-        Build 2: 'Situational Counter' against {opponent_context_name}. ALSO include a 'counters' field ONLY in this build with 3 champions that counter {opponent_context_name} in the Mid Lane, plus their keystone ID. \
-        Build 3: 'Scaling/Late Game'. \
-        SCHEMA for each build: {{ \
+        "Return ONLY ONE JSON object for the {build_type} rune build for {champion} {role} (Current Patch). No markdown or text. \
+        SCHEMA: {{ \
           \"name\": \"string\", \
           \"winrate\": \"52%\", \
           \"banrate\": \"--\", \
@@ -259,8 +247,10 @@ async fn fetch_gemini(api_key: &str, champion: &str, role: &str, opponent: Optio
         RULES: \
         1. perkIds must be exactly 6. Primary tree: Keystone + 3 perks (one per row). Secondary tree: Exactly 2 perks from different rows. \
         2. shards must be exactly 3 (one from each of the 3 rows). \
-        3. Use REAL League of Legends IDs and meta builds. No duplicates. Total 9 perks required for a playable page.",
+        3. Use REAL League of Legends IDs and meta builds. Total 9 perks required for a playable page. \
+        4. If opponent is {opponent_context_name}, tailor the build for that matchup.",
         champion = champion, role = role, 
+        build_type = build_type,
         opponent_context_name = opponent_context_name
     );
 
@@ -268,11 +258,29 @@ async fn fetch_gemini(api_key: &str, champion: &str, role: &str, opponent: Optio
         "contents": [{"parts": [{"text": prompt}]}]
     });
 
+    println!("Sending Gemini 3 Flash request for '{}' (key: {})...", build_type, masked_key);
+
     let res: Value = client.post(&url)
         .header("Content-Type", "application/json")
         .json(&body)
-        .send().await.map_err(|e| format!("Request failed: {}", e))?
+        .send().await
+        .map_err(|e| {
+            let err_msg = e.to_string();
+            // Sanitize key if present in the error message
+            if err_msg.contains("key=") {
+                "Request failed (URL hidden for security)".to_string()
+            } else {
+                format!("Request failed: {}", err_msg)
+            }
+        })?
         .json().await.map_err(|e| format!("JSON parse failed: {}", e))?;
+
+    // Debug: success log
+    if let Some(candidates) = res["candidates"].as_array() {
+        if !candidates.is_empty() {
+             println!("🎉 Success: Gemini 3 Flash generated '{}' build", build_type);
+        }
+    }
 
     let text_val = &res["candidates"][0]["content"]["parts"][0]["text"];
     if text_val.is_null() {
@@ -289,19 +297,10 @@ async fn fetch_gemini(api_key: &str, champion: &str, role: &str, opponent: Optio
     }
     text = text.trim().to_string();
 
-    let builds: Vec<RuneBuild> = serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse Gemini builds: {} — raw: {}", e, &text[..text.len().min(300)]))?;
+    let build: RuneBuild = serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse Gemini build: {} — raw: {}", e, &text[..text.len().min(300)]))?;
 
-    // Validate builds
-    let valid_builds: Vec<RuneBuild> = builds.into_iter().filter(|b| {
-        b.primary_style_id > 0 && b.perk_ids.len() == 6 && b.shards.len() == 3 && b.spells.len() == 2
-    }).collect();
-
-    if valid_builds.is_empty() {
-        return Err("Gemini returned builds but none passed validation".into());
-    }
-
-    Ok(valid_builds)
+    Ok(build)
 }
 
 #[cfg(test)]

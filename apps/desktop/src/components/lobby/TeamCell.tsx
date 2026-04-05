@@ -28,7 +28,7 @@ const TeamCell = ({ p, isBlue, forceMockMe }: TeamCellProps) => {
     const displayName = isMe ? 'YOU' : (cid && champName !== 'Inconnu' ? champName : (isBlue ? 'Allié' : 'Ennemi'));
 
     return (
-        <div className={`relative flex-1 min-w-0 shrink-0 max-w-[4.8rem] aspect-[20/28] h-auto bg-[#111115] border transition-colors ${isMe ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'border-white/5'} overflow-hidden`}>
+        <div className={`relative flex-1 min-w-0 shrink-0 max-w-[6.4rem] aspect-[20/28] h-auto bg-[#111115] border transition-colors ${isMe ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'border-white/5'} overflow-hidden`}>
             {art && <img src={art} className={`absolute inset-0 w-full h-full object-cover object-top ${!p.championId ? 'grayscale opacity-50' : ''}`} alt="" />}
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-black/20 to-transparent"></div>
             

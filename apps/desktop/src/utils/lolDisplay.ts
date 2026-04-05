@@ -18,15 +18,16 @@ export const getChampName = (id: number, champs: any[]) => {
 
 export const getShardIcon = (id: number) => {
     const map: any = {
-        5005: "StatMods/StatModsAttackSpeedIcon.png",
-        5008: "StatMods/StatModsAdaptiveForceIcon.png",
-        5007: "StatMods/StatModsCDRScalingIcon.png",
-        5002: "StatMods/StatModsArmorIcon.png",
-        5003: "StatMods/StatModsMagicResIcon.png",
-        5001: "StatMods/StatModsHealthScalingIcon.png",
-        5011: "StatMods/StatModsHealthPlusIcon.png",
-        5013: "StatMods/StatModsTenacityIcon.png",
-        5010: "StatMods/StatModsMovementSpeedIcon.png"
+        5005: "statmodsadaptivespeedicon.png",
+        5008: "statmodsadaptiveforceicon.png",
+        5007: "statmodscdrscalingicon.png",
+        5002: "statmodsarmoricon.png",
+        5003: "statmodsmagicresicon.png",
+        5001: "statmodshealthscalingicon.png",
+        5011: "statmodshealthplusicon.png",
+        5013: "statmodstenacityicon.png",
+        5010: "statmodsmovementspeedicon.png"
     };
-    return map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/perk-images/${map[id]}` : '';
+    // Use CommunityDragon for more reliable shard icons
+    return map[id] ? `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/${map[id]}` : '';
 };

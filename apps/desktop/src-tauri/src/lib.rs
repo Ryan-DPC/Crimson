@@ -15,7 +15,8 @@ pub fn run() {
         storage::set_app_data,
         storage::set_auto_accept,
         storage::set_player_note,
-        analyzer::fetch_dynamic_runes,
+        lcu_commands::analyzer::fetch_single_build,
+        lcu_commands::analyzer::fetch_dynamic_runes,
         db::get_all_matches,
         lcu::fetch_ddragon_url
     ])

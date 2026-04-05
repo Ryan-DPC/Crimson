@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLCU } from './contexts/LCUContext';
 import { getVersion } from '@tauri-apps/api/app';
-import { check, type Update } from '@tauri-apps/plugin-updater';
 
 
 // Components
@@ -15,7 +14,7 @@ import DebugTab from './components/debug/DebugTab';
 import { 
   Home, History, Swords, Settings, Bug, 
   ShieldAlert, Cpu, 
-  Activity, Zap, RefreshCw
+  Activity, Zap, Download, X
 } from 'lucide-react';
 
 function App() {
@@ -24,27 +23,36 @@ function App() {
     gamePhase, rank, sum, appData 
   } = useLCU();
 
-  const [appVersion, setAppVersion] = useState<string>('0.0.0');
-  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('1.1.0');
+  const [remoteUpdate, setRemoteUpdate] = useState<{ version: string, url: string } | null>(null);
 
   useEffect(() => {
     const initApp = async () => {
-      // Get real version
+      // Get real version from Tauri
       try {
         const v = await getVersion();
         setAppVersion(v);
-      } catch (e) {
-        console.error('Failed to get version:', e);
-      }
-
-      // Check for updates automatically
-      try {
-        const update = await check();
-        if (update) {
-          setUpdateAvailable(update);
+        
+        // Manual GitHub Check as alternative to signed updater
+        try {
+          const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases/latest');
+          if (resp.ok) {
+            const data = await resp.json();
+            const latestV = data.tag_name.replace('v', '');
+            
+            // Basic semver comparison
+            if (latestV !== v) {
+              setRemoteUpdate({ 
+                version: latestV, 
+                url: data.html_url 
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('GitHub update check failed:', e);
         }
       } catch (e) {
-        console.warn('Update check failed:', e);
+        console.error('Failed to get version:', e);
       }
     };
 
@@ -171,22 +179,28 @@ function App() {
           {tab === 'debug' && <DebugTab />}
         </div>
         
-        {/* Automatic Update Toast/Alert */}
-        {updateAvailable && (
-          <div className="fixed bottom-20 right-8 z-[100] animate-in slide-in-from-right-8 duration-500">
-            <div className="bg-[#111115] border border-red-500/30 p-4 rounded-2xl shadow-2xl flex items-center gap-4">
-              <div className="p-2 bg-red-600/10 rounded-xl border border-red-500/20">
-                <RefreshCw className="w-4 h-4 text-red-500 animate-spin-slow" />
+        {/* GitHub Update Notification */}
+        {remoteUpdate && (
+          <div className="absolute top-4 right-4 z-50 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="bg-[#1a1a20]/95 border border-red-500/30 p-4 rounded-xl shadow-[0_0_30px_rgba(239,68,68,0.15)] flex items-center gap-4 backdrop-blur-md">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <Download className="w-5 h-5 text-red-500 animate-bounce" />
               </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-white uppercase tracking-widest">Update Available</span>
-                <span className="text-[9px] text-white/40 uppercase">Version {updateAvailable.version} is ready</span>
+              <div>
+                <p className="text-white font-bold text-sm tracking-tight">Mise à jour disponible (v{remoteUpdate.version})</p>
+                <p className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-0.5">Nouvelle version sur GitHub</p>
               </div>
               <button 
-                onClick={() => setTab('settings')}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all"
+                onClick={() => window.open(remoteUpdate.url, '_blank')}
+                className="ml-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95"
               >
-                Go to Settings
+                Mettre à jour
+              </button>
+              <button 
+                 onClick={() => setRemoteUpdate(null)}
+                 className="p-1 hover:bg-white/5 rounded-full"
+              >
+                <X className="w-4 h-4 text-white/20" />
               </button>
             </div>
           </div>

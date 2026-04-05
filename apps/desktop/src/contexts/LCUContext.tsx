@@ -19,7 +19,7 @@ interface LCUContextType {
     myChamp: number;
     enemyMid: string | null;
     isLoadingBuilds: boolean;
-    builds: RuneBuild[];
+    builds: (RuneBuild | null)[];
     isImporting: number | null;
     appData: any;
     
@@ -62,7 +62,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [myChamp, setMyChamp] = useState<number>(0);
     const [enemyMid, setEnemyMid] = useState<string | null>(null);
     const [isLoadingBuilds, setIsLoadingBuilds] = useState(false);
-    const [builds, setBuilds] = useState<RuneBuild[]>([]);
+
     const [isImporting, setIsImporting] = useState<number | null>(null);
     const [simMode, setSimMode] = useState(false);
     const [tab, setTab] = useState('home');
@@ -359,6 +359,8 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
     }, [simMode]);
 
+    const [builds, setBuilds] = useState<(RuneBuild | null)[]>([]);
+
     useEffect(() => {
         const cname = getChampName(simMode ? 517 : myChamp, champs);
         if (!cname || cname === 'Inconnu' || cname === '') {
@@ -368,22 +370,38 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const fetchRunes = async () => {
             const me = lobbyMyTeam.find(p => p.cellId === lobbyState?.localPlayerCellId);
-            const role = me ? ROLE_TRANSLATE[me.assignedPosition] || 'Non Défini' : 'Non Défini';
+            const role = me ? ROLE_TRANSLATE[me.assignedPosition] || 'mid' : 'mid';
             const currentParams = `${cname}-${role}-${enemyMid || 'none'}`;
             if (currentParams === lastFetchParams.current) return;
             lastFetchParams.current = currentParams;
 
+            // Reset builds to 3 null slots for loading placeholders
+            setBuilds([null, null, null]);
             setIsLoadingBuilds(true);
-            try {
-                const res = await invoke<RuneBuild[]>('fetch_dynamic_runes', { 
-                    championName: cname, role: role, opponent: enemyMid || null, patch: v
-                });
-                if (res) setBuilds(res);
-            } catch (e) {
-                console.error("Runes fetch error", e);
-            } finally {
+            
+            // Fire all 3 in parallel
+            const fetchOne = async (index: number) => {
+                try {
+                    const b = await invoke<RuneBuild>('fetch_single_build', { 
+                        championName: cname, role: role, opponent: enemyMid || null, patch: v, index 
+                    });
+                    setBuilds(prev => {
+                        const next = [...prev];
+                        next[index - 1] = b;
+                        return next;
+                    });
+                } catch (e) {
+                    console.error(`Build ${index} fetch error`, e);
+                }
+            };
+
+            Promise.all([
+                fetchOne(1),
+                fetchOne(2),
+                fetchOne(3)
+            ]).finally(() => {
                 setIsLoadingBuilds(false);
-            }
+            });
         };
         fetchRunes();
     }, [myChamp, simMode, enemyMid, champs, lobbyMyTeam, lobbyState, v]);
