@@ -35,17 +35,32 @@ function App() {
         
         // Manual GitHub Check as alternative to signed updater
         try {
-          const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases/latest');
+          const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
           if (resp.ok) {
             const data = await resp.json();
-            const latestV = data.tag_name.replace('v', '');
+            let highestV = v;
+            let bestUrl = '';
             
-            // Basic semver comparison
-            if (latestV !== v) {
-              setRemoteUpdate({ 
-                version: latestV, 
-                url: data.html_url 
-              });
+            const isNewer = (remote: string, local: string) => {
+              const pR = remote.replace('v', '').split('.').map(Number);
+              const pL = local.replace('v', '').split('.').map(Number);
+              for (let i = 0; i < 3; i++) {
+                if ((pR[i] || 0) > (pL[i] || 0)) return true;
+                if ((pR[i] || 0) < (pL[i] || 0)) return false;
+              }
+              return false;
+            };
+
+            for (const release of data) {
+              const relV = release.tag_name.replace('v', '');
+              if (isNewer(relV, highestV)) {
+                highestV = relV;
+                bestUrl = release.html_url;
+              }
+            }
+            
+            if (highestV !== v) {
+              setRemoteUpdate({ version: highestV, url: bestUrl });
             }
           }
         } catch (e) {

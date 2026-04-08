@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { check } from '@tauri-apps/plugin-updater';
 import { useLCU } from '../../contexts/LCUContext';
 import { getVersion } from '@tauri-apps/api/app';
 import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download, Zap } from 'lucide-react';
@@ -67,29 +66,48 @@ const SettingsTab = () => {
     const handleCheckUpdate = async () => {
         setUpdateStatus('checking');
         try {
-            const update = await check();
-            if (update) {
-                setAvailableVersion(update.version);
-                setUpdateStatus('available');
+            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
+            if (resp.ok) {
+                const data = await resp.json();
+                let highestV = currentVersion;
+                let foundNewer = false;
+                
+                const isNewer = (remote: string, local: string) => {
+                  const pR = remote.replace('v', '').split('.').map(Number);
+                  const pL = local.replace('v', '').split('.').map(Number);
+                  for (let i = 0; i < 3; i++) {
+                    if ((pR[i] || 0) > (pL[i] || 0)) return true;
+                    if ((pR[i] || 0) < (pL[i] || 0)) return false;
+                  }
+                  return false;
+                };
+
+                for (const release of data) {
+                  const relV = release.tag_name.replace('v', '');
+                  if (isNewer(relV, highestV)) {
+                    highestV = relV;
+                    foundNewer = true;
+                  }
+                }
+                
+                if (foundNewer) {
+                    setAvailableVersion(highestV);
+                    setUpdateStatus('available');
+                } else {
+                    setUpdateStatus('up-to-date');
+                    setTimeout(() => setUpdateStatus('idle'), 4000);
+                }
             } else {
-                setUpdateStatus('up-to-date');
-                setTimeout(() => setUpdateStatus('idle'), 4000);
+                setUpdateStatus('idle');
             }
         } catch {
             setUpdateStatus('idle');
         }
     };
 
-    const handleInstallUpdate = async () => {
-        setUpdateStatus('installing');
-        try {
-            const update = await check();
-            if (update) {
-                await update.downloadAndInstall();
-            }
-        } catch {
-            setUpdateStatus('available');
-        }
+    const handleInstallUpdate = () => {
+        setUpdateStatus('idle');
+        window.open('https://github.com/Ryan-DPC/Crimson/releases', '_blank');
     };
 
     return (
