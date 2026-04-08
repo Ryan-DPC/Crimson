@@ -232,23 +232,25 @@ async fn fetch_gemini_single(api_key: &str, champion: &str, role: &str, opponent
     let opponent_context_name = opponent.as_deref().unwrap_or("the enemy team");
 
     let prompt = format!(
-        "Return ONLY ONE JSON object for the {build_type} rune build for {champion} {role} (Current Patch). No markdown or text. \
+        "Return ONLY ONE JSON object for a {build_type} build for {champion} {role} (Current Patch). Strictly follow this schema. \
         SCHEMA: {{ \
-          \"name\": \"string\", \
-          \"winrate\": \"52%\", \
-          \"banrate\": \"--\", \
+          \"name\": \"string (short and descriptive)\", \
+          \"winrate\": \"string (e.g. 52.1%)\", \
+          \"banrate\": \"string\", \
           \"primaryStyleId\": int, \
           \"subStyleId\": int, \
-          \"perkIds\": [exactly 6 ints: Primary (1 keystone + 1 from EACH of the 3 other rows) AND Secondary (exactly 2 from DIFFERENT rows)], \
-          \"shards\": [exactly 3 ints: 1 Offensive, 1 Flex, 1 Defensive], \
+          \"perkIds\": [exactly 6 ints], \
+          \"shards\": [exactly 3 ints], \
           \"spells\": [exactly 2 ints], \
           \"counters\": [{{ \"name\": \"ChampionName\", \"keystoneId\": int }}] \
         }} \
-        RULES: \
-        1. perkIds must be exactly 6. Primary tree: Keystone + 3 perks (one per row). Secondary tree: Exactly 2 perks from different rows. \
-        2. shards must be exactly 3 (one from each of the 3 rows). \
-        3. Use REAL League of Legends IDs and meta builds. Total 9 perks required for a playable page. \
-        4. If opponent is {opponent_context_name}, tailor the build for that matchup.",
+        CRITICAL RULES FOR PERKIDS (ARRAY OF 6): \
+        - Primary Tree (4 total): [Keystone ID, Row 1 Perk ID, Row 2 Perk ID, Row 3 Perk ID]. Exactly one from EACH row. \
+        - Secondary Tree (2 total): [Perk ID 1, Perk ID 2]. Choose exactly 2 from DIFFERENT rows. \
+        - TOTAL perkIds MUST BE EXACTLY 6. \
+        CRITICAL RULES FOR SHARDS: \
+        - Exactly 3 IDs. Row 1: (5008, 5005, or 5007). Row 2: (5008, 5002, or 5003). Row 3: (5011, 5002, or 5003). \
+        STRICT: No markdown, no text, just JSON. If opponent is {opponent_context_name}, you MUST optimize the build specifically to counter them.",
         champion = champion, role = role, 
         build_type = build_type,
         opponent_context_name = opponent_context_name

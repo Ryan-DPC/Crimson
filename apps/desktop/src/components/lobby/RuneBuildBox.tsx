@@ -53,11 +53,14 @@ const RuneBuildBox = ({ b, i }: { b: RuneBuild | null, i: number }) => {
                         </div>
                         {pTree.slots.map((slot: any, sIdx: number) => (
                             <div key={sIdx} className="flex gap-1.5">
-                                {slot.runes.map((r: any) => {
-                                    const sel = b.perkIds.includes(r.id);
+                                {slot.runes.map((r: any, rIdx: number) => {
+                                    // Ensure only ONE rune per slot/row is highlighted even if AI provides duplicates
+                                    const isFirstMatchInSlot = slot.runes.findIndex((x: any) => b.perkIds.includes(x.id)) === rIdx;
+                                    const sel = b.perkIds.includes(r.id) && isFirstMatchInSlot;
+                                    
                                     const size = sIdx === 0 ? 'w-11 h-11' : 'w-7 h-7';
                                     return (
-                                        <div key={r.id} className={`flex items-center justify-center rounded-full transition-all duration-300 ${sel ? (sIdx === 0 ? `${size} border-2 border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.3)] bg-black/60` : `${size} border border-white/20 bg-black/60`) : `${size} opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100 hover:scale-110`} p-1`}>
+                                        <div key={r.id} className={`flex items-center justify-center rounded-full transition-all duration-300 ${sel ? (sIdx === 0 ? `${size} border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)] bg-black/60` : `${size} border border-red-500/60 bg-black/60 shadow-[0_0_8px_rgba(239,68,68,0.2)]`) : `${size} opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100 hover:scale-110`} p-1`}>
                                             <img src={getIconUrl(r.icon)} className="w-full h-full object-contain" alt="" />
                                         </div>
                                     );
@@ -83,7 +86,7 @@ const RuneBuildBox = ({ b, i }: { b: RuneBuild | null, i: number }) => {
                                             {slot.runes.map((r: any) => {
                                                 const sel = (b.perkIds || []).includes(r.id);
                                                 return (
-                                                    <div key={r.id} onClick={() => handleSecondaryClick(i, r.id, sIdx)} className={`flex items-center justify-center rounded-full transition-all duration-300 cursor-pointer hover:border-white/50 hover:scale-110 ${sel ? 'w-6 h-6 border border-red-500/50 bg-black/40 shadow-[0_0_6px_rgba(239,68,68,0.2)]' : 'w-6 h-6 opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100'} p-1`}>
+                                                    <div key={r.id} onClick={() => handleSecondaryClick(i, r.id, sIdx)} className={`flex items-center justify-center rounded-full transition-all duration-300 cursor-pointer hover:border-white/50 hover:scale-110 ${sel ? 'w-6 h-6 border border-emerald-500/50 bg-black/40 shadow-[0_0_6px_rgba(16,185,129,0.2)]' : 'w-6 h-6 opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100'} p-1`}>
                                                         <img src={getIconUrl(r.icon)} className="w-full h-full object-contain" alt="" />
                                                     </div>
                                                 );
@@ -95,14 +98,18 @@ const RuneBuildBox = ({ b, i }: { b: RuneBuild | null, i: number }) => {
                         </div>
                     )}
 
-                    {/* Shards */}
+                    {/* Shards (Updated Grid to match S14/S15 Client) */}
                     <div className="flex flex-col gap-1.5 mt-1 pt-3 border-t border-white/5 w-full items-center">
-                        {[[5008, 5005, 5007], [5008, 5010, 5013], [5011, 5002, 5003]].map((row, rIdx) => (
+                        {[
+                           [5008, 5005, 5007], // Row 1: Adaptive, Atk Spd, CDR
+                           [5008, 5002, 5003], // Row 2: Adaptive, Armor, MR
+                           [5011, 5002, 5003]  // Row 3: HP Scaling, Armor, MR
+                        ].map((row, rIdx) => (
                             <div key={rIdx} className="flex justify-center gap-2">
                                 {row.map(shardId => {
                                     const sel = (b.shards || []).includes(shardId);
                                     return (
-                                        <div key={shardId} onClick={() => handleShardClick(i, rIdx, shardId)} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer border hover:border-white/50 hover:scale-110 ${sel ? 'border-red-500/50 bg-[#1a1a20] shadow-[0_0_5px_rgba(239,68,68,0.2)]' : 'border-white/5 opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100'} p-0.5`}>
+                                        <div key={shardId} onClick={() => handleShardClick(i, rIdx, shardId)} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer border hover:border-white/50 hover:scale-110 ${sel ? 'border-amber-400/80 bg-[#1a1a20] shadow-[0_0_5px_rgba(251,191,36,0.3)]' : 'border-white/5 opacity-20 grayscale saturate-0 hover:grayscale-0 hover:opacity-100'} p-0.5`}>
                                             <img src={getShardIcon(shardId)} className="w-full h-full rounded-full" alt="" />
                                         </div>
                                     );

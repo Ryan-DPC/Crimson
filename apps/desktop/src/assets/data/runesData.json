@@ -12,9 +12,9 @@
         "id": 8000, "key": "Precision", "icon": "perk-images/Styles/7201_Precision.png", 
         "slots": [
             { "runes": [{ "id": 8005, "icon": "perk-images/Styles/Precision/PressTheAttack/PressTheAttack.png" }, { "id": 8008, "icon": "perk-images/Styles/Precision/LethalTempo/LethalTempoTemp.png" }, { "id": 8021, "icon": "perk-images/Styles/Precision/FleetFootwork/FleetFootwork.png" }, { "id": 8010, "icon": "perk-images/Styles/Precision/Conqueror/Conqueror.png" }] },
-            { "runes": [{ "id": 9101, "icon": "perk-images/Styles/Precision/Overheal.png" }, { "id": 9111, "icon": "perk-images/Styles/Precision/Triumph.png" }, { "id": 8009, "icon": "perk-images/Styles/Precision/PresenceOfMind.png" }] },
-            { "runes": [{ "id": 9104, "icon": "perk-images/Styles/Precision/LegendAlacrity.png" }, { "id": 9105, "icon": "perk-images/Styles/Precision/LegendTenacity.png" }, { "id": 9103, "icon": "perk-images/Styles/Precision/LegendBloodline.png" }] },
-            { "runes": [{ "id": 8014, "icon": "perk-images/Styles/Precision/CoupDeGrace.png" }, { "id": 8017, "icon": "perk-images/Styles/Precision/CutDown.png" }, { "id": 8299, "icon": "perk-images/Styles/Precision/LastStand.png" }] }
+            { "runes": [{ "id": 9101, "icon": "perk-images/Styles/Precision/Overheal/Overheal.png" }, { "id": 9111, "icon": "perk-images/Styles/Precision/Triumph/Triumph.png" }, { "id": 8009, "icon": "perk-images/Styles/Precision/PresenceOfMind/PresenceOfMind.png" }] },
+            { "runes": [{ "id": 9104, "icon": "perk-images/Styles/Precision/LegendAlacrity/LegendAlacrity.png" }, { "id": 9105, "icon": "perk-images/Styles/Precision/LegendTenacity/LegendTenacity.png" }, { "id": 9103, "icon": "perk-images/Styles/Precision/LegendBloodline/LegendBloodline.png" }] },
+            { "runes": [{ "id": 8014, "icon": "perk-images/Styles/Precision/CoupDeGrace/CoupDeGrace.png" }, { "id": 8017, "icon": "perk-images/Styles/Precision/CutDown/CutDown.png" }, { "id": 8299, "icon": "perk-images/Styles/Precision/LastStand/LastStand.png" }] }
         ]
     },
     { 
