@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLCU } from '../../contexts/LCUContext';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download, Zap } from 'lucide-react';
 
@@ -29,22 +31,23 @@ const SettingsTab = () => {
     const [keyInput, setKeyInput] = useState(appData?.geminiApiKey || '');
     const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
     const [isEditingKey, setIsEditingKey] = useState(!appData?.geminiApiKey);
-
-    // --- Update state ---
     const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
     const [availableVersion, setAvailableVersion] = useState<string | null>(null);
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
+    const [downloadProgress, setDownloadProgress] = useState(0);
 
     useEffect(() => {
-        const fetchVersion = async () => {
-            try {
-                const v = await getVersion();
-                setCurrentVersion(v);
-            } catch (e) {
-                console.error("Failed to get version", e);
+        getVersion().then(setCurrentVersion).catch(console.error);
+        
+        let unlistenProgress: any;
+        listen('update-progress', (event: any) => {
+            const payload = event.payload as { downloaded: number, total: number };
+            if (payload.total > 0) {
+                setDownloadProgress(Math.round((payload.downloaded / payload.total) * 100));
             }
-        };
-        fetchVersion();
+        }).then(u => unlistenProgress = u);
+        
+        return () => { if(unlistenProgress) unlistenProgress(); }
     }, []);
 
     useEffect(() => {
@@ -105,9 +108,27 @@ const SettingsTab = () => {
         }
     };
 
-    const handleInstallUpdate = () => {
-        setUpdateStatus('idle');
-        window.open('https://github.com/Ryan-DPC/Crimson/releases', '_blank');
+    const handleInstallUpdate = async () => {
+        setUpdateStatus('installing');
+        setDownloadProgress(0);
+        try {
+            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
+            if (resp.ok) {
+                const data = await resp.json();
+                const targetRelease = data.find((r: any) => r.tag_name.replace('v', '') === availableVersion);
+                const assetInfo = targetRelease?.assets.find((a: any) => a.name.endsWith('.exe'));
+                
+                if (assetInfo) {
+                     await invoke('download_and_install_update', { url: assetInfo.browser_download_url });
+                } else {
+                     setUpdateStatus('available');
+                }
+            } else {
+                setUpdateStatus('available');
+            }
+        } catch {
+            setUpdateStatus('available');
+        }
     };
 
     return (
@@ -188,11 +209,29 @@ const SettingsTab = () => {
                             {updateStatus === 'available' && <p className="text-red-400 text-[10px] uppercase font-black tracking-widest">🚀 Version <span className="text-white">{availableVersion}</span> disponible !</p>}
                             {updateStatus === 'installing' && <p className="text-blue-400 text-[10px] uppercase font-black tracking-widest animate-pulse">Téléchargement... L'app va redémarrer automatiquement.</p>}
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-3 items-center">
                             {updateStatus === 'available' && (
                                 <button onClick={handleInstallUpdate} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]">
                                     <Download className="w-3.5 h-3.5" /> Installer
                                 </button>
+                            )}
+                            {updateStatus === 'installing' && (
+                                <div className="flex items-center justify-center relative w-10 h-10 ml-4">
+                                    <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                                        <path
+                                            className="text-white/10"
+                                            strokeWidth="3.5" stroke="currentColor" fill="none"
+                                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                        />
+                                        <path
+                                            className="text-red-500 transition-all duration-300"
+                                            strokeDasharray={`${downloadProgress}, 100`}
+                                            strokeWidth="3.5" stroke="currentColor" fill="none" strokeLinecap="round"
+                                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                        />
+                                    </svg>
+                                    <span className="absolute text-[9px] font-black tracking-tighter text-white">{downloadProgress}%</span>
+                                </div>
                             )}
                             {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'checking') && (
                                 <button onClick={handleCheckUpdate} disabled={updateStatus === 'checking'} className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">

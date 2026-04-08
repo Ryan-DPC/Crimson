@@ -18,7 +18,8 @@ pub fn run() {
         lcu_commands::analyzer::fetch_single_build,
         lcu_commands::analyzer::fetch_dynamic_runes,
         db::get_all_matches,
-        lcu::fetch_ddragon_url
+        lcu::fetch_ddragon_url,
+        lcu_commands::updater_cmd::download_and_install_update
     ])
     .setup(|app| {
       let pool = db::create_pool(app.handle());
