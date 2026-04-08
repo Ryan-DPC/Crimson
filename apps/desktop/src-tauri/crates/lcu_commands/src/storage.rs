@@ -37,6 +37,9 @@ pub struct AppData {
 
     #[serde(default = "default_true")]
     pub draft_warnings: bool,
+    
+    #[serde(default)]
+    pub invisible_automation: bool,
     #[serde(default = "default_true")]
     pub dark_glass_mode: bool,
     #[serde(default)]
@@ -59,6 +62,7 @@ impl Default for AppData {
             remembered_auto_ban: None,
             remembered_auto_pick: None,
             draft_warnings: true,
+            invisible_automation: false,
             dark_glass_mode: true,
             reduced_animations: false,
         }

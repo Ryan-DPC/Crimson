@@ -262,6 +262,12 @@ const SettingsTab = () => {
                                 value={appData?.draftWarnings ?? true}
                                 onChange={(v) => updateSetting('draftWarnings', v)}
                             />
+                            <Toggle
+                                label="Automation Invisible"
+                                description="Ne pas ouvrir l'app en Draft (Consommation Réduite)"
+                                value={appData?.invisibleAutomation ?? false}
+                                onChange={(v) => updateSetting('invisibleAutomation', v)}
+                            />
                         </div>
                     </div>
 

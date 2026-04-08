@@ -61,6 +61,17 @@ pub async fn start_lcu_ws(handle: AppHandle) {
                                             "/lol-gameflow/v1/gameflow-phase" => {
                                                 let phase = data.as_str().unwrap_or("None");
                                                 let _ = ws_internal.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
+                                                
+                                                if phase == "ChampSelect" {
+                                                    let app_data = lcu_commands::storage::load_data(&handle);
+                                                    if !app_data.invisible_automation {
+                                                        if let Some(window) = handle.get_webview_window("main") {
+                                                            let _ = window.show();
+                                                            let _ = window.unminimize();
+                                                            let _ = window.set_focus();
+                                                        }
+                                                    }
+                                                }
                                             },
                                             "/lol-champ-select/v1/session" => {
                                                 // Simplified broadcast

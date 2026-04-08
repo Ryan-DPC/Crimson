@@ -80,7 +80,7 @@ function App() {
       const appWindow = getCurrentWindow();
       if (command === 'minimize') await appWindow.minimize();
       if (command === 'maximize') await appWindow.toggleMaximize();
-      if (command === 'close') await appWindow.close();
+      if (command === 'close') await appWindow.hide();
     } catch (e) {
       console.warn('Window command failed, likely not in Tauri context:', e);
     }
