@@ -379,8 +379,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setBuilds([null, null, null]);
             setIsLoadingBuilds(true);
             
-            // Fire all 3 in parallel
-            const fetchOne = async (index: number) => {
+            // Execute with a slight stagger (1.5s) to avoid Gemini API burst limits for free tiers
+            const fetchOne = async (index: number, delayMs: number) => {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
                 try {
                     const b = await invoke<RuneBuild>('fetch_single_build', { 
                         championName: cname, role: role, opponent: enemyMid || null, patch: v, index 
@@ -396,9 +397,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             };
 
             Promise.all([
-                fetchOne(1),
-                fetchOne(2),
-                fetchOne(3)
+                fetchOne(1, 0),
+                fetchOne(2, 1500),
+                fetchOne(3, 3000)
             ]).finally(() => {
                 setIsLoadingBuilds(false);
             });
