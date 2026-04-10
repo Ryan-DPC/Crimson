@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -58,7 +61,15 @@ jobs:
       - name: Install Tauri CLI
         run: npm ci
         working-directory: apps/desktop
-      - name: Build Tauri app
+      - name: Build Tauri app (Cache only)
+        if: github.ref == 'refs/heads/main'
+        run: npm run tauri build
+        working-directory: apps/desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Release Tauri app
+        if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,12 +85,10 @@ jobs:
             ## ⚡ Crimson ${{ github.ref_name }}
             
             Cette version améliore l'intégration avec Windows et les temps de build :
-            - **Performance** : Temps de compilation divisé par ~2.
-            - **Zone de notification** : Choix entre fermer l'app ou la réduire dans la tray.
-            - **Démarrage automatique** : Nouvelle option pour lancer Crimson au démarrage de Windows.
-            - **Notifications natives** : Alertes Windows lorqu'un match est accepté.
-            - **Mémoire de la fenêtre** : L'app retient sa position et sa taille (geometry).
-            - **Correctif Shutdown** : L'application ne bloque plus l'extinction du PC.
+            - **Updater Professionnel** : Téléchargement et installation silencieuse avec barre de progression.
+            - **Notification Contextuelle** : Mises à jour actionnables directement depuis le haut de l'écran.
+            - **Permissions Fenêtre** : Correction du bug où l'application ne se réduisait pas dans la zone de notification.
+            - **Performance** : Build optimisé et cache CI/CD amélioré.
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
