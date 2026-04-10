@@ -146,7 +146,7 @@ pub fn run() {
             tauri::async_runtime::block_on(async move {
                 let mut lock = child_mutex.lock().await;
                 if let Some(mut child) = lock.take() {
-                    let _ = child.kill().await;
+                    let _ = child.kill();
                 }
             });
         }
@@ -156,6 +156,7 @@ pub fn run() {
 fn notify_server_resource_mode(low: bool) -> Result<(), String> {
     tauri::async_runtime::spawn(async move {
         use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+        use futures_util::SinkExt;
         use serde_json::json;
 
         let url = "ws://127.0.0.1:40509";
