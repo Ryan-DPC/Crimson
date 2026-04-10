@@ -49,7 +49,7 @@ pub fn run() {
         .icon(app.default_window_icon().unwrap().clone())
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => {
-                std::process::exit(0);
+                app.exit(0);
             }
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -89,12 +89,21 @@ pub fn run() {
       // Launch Sidecar
       use tauri_plugin_shell::ShellExt;
       let sidecar_handle = handle.clone();
+      let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+      let sidecar_child_clone = sidecar_child.clone();
+      
       tauri::async_runtime::spawn(async move {
           let sidecar = sidecar_handle.shell().sidecar("phantom_server").unwrap();
-          let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn sidecar");
+          if let Ok((_rx, child)) = sidecar.spawn() {
+              let mut lock = sidecar_child_clone.lock().await;
+              *lock = Some(child);
+          }
       });
       
+      app.manage(SidecarChild(sidecar_child));
+
       if cfg!(debug_assertions) {
+// ... (lines 97-104)
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
@@ -104,6 +113,7 @@ pub fn run() {
       Ok(())
     })
     .on_window_event(|window, event| {
+// ... (lines 107-123)
         match event {
             tauri::WindowEvent::Resized(size) => {
                 let handle = window.app_handle();
@@ -122,6 +132,20 @@ pub fn run() {
             _ => {}
         }
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            let sidecar_state = app_handle.state::<SidecarChild>();
+            let child_mutex = sidecar_state.0.clone();
+            tauri::async_runtime::block_on(async move {
+                let mut lock = child_mutex.lock().await;
+                if let Some(mut child) = lock.take() {
+                    let _ = child.kill().await;
+                }
+            });
+        }
+    });
 }
+
+struct SidecarChild(std::sync::Arc<tokio::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>>);
