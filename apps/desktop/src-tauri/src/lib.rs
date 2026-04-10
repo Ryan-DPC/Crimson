@@ -91,9 +91,11 @@ pub fn run() {
       let sidecar_handle = handle.clone();
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       let sidecar_child_clone = sidecar_child.clone();
+      let pid = std::process::id();
       
       tauri::async_runtime::spawn(async move {
-          let sidecar = sidecar_handle.shell().sidecar("phantom_server").unwrap();
+          let sidecar = sidecar_handle.shell().sidecar("phantom_server").unwrap()
+              .args(["--parent-pid", &pid.to_string()]);
           if let Ok((_rx, child)) = sidecar.spawn() {
               let mut lock = sidecar_child_clone.lock().await;
               *lock = Some(child);

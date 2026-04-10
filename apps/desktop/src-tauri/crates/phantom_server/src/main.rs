@@ -1,10 +1,40 @@
 use tokio::sync::broadcast;
 use lcu_commands::events::WsSender;
 use phantom_server::{ws, lcu_ws, service};
+use clap::Parser;
+use sysinfo::{System, Pid};
+use std::time::Duration;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(long)]
+    parent_pid: Option<u32>,
+
+    #[arg(long)]
+    data_path: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
     println!("Starting Crimson Phantom Server...");
+
+    if let Some(pid) = args.parent_pid {
+        println!("Monitoring parent PID: {}", pid);
+        tokio::spawn(async move {
+            let mut sys = System::new_all();
+            let pid = Pid::from(pid as usize);
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                sys.refresh_processes(sysinfo::ProcessesToRefresh::All);
+                if sys.process(pid).is_none() {
+                    println!("Parent process {} not found. Exiting sidecar.", pid);
+                    std::process::exit(0);
+                }
+            }
+        });
+    }
 
     // Setup broadcast channel for internal communications
     let (tx, _) = broadcast::channel(100);
