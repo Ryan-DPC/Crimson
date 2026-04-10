@@ -18,6 +18,7 @@ interface LCUContextType {
     v: string;
     myChamp: number;
     enemyMid: string | null;
+    isLoadingBuilds: boolean;
     builds: (RuneBuild | null)[];
     isImporting: number | null;
     appData: any;
@@ -581,6 +582,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return (
         <LCUContext.Provider value={{
             sum, lobbyState, lobbyMyTeam, lobbyTheirTeam, radar, gamePhase, rank, hist, champs, runesData: runesDataJson, v, myChamp, enemyMid, isLoadingBuilds, builds, isImporting, appData,
+            updateStatus, updateProgress, availableVersion, remoteUpdateAssetUrl, checkUpdates, installUpdate,
             setTab, toggleSimMode, simMode, tab, toggleAutoBan, toggleAutoPick, updateGeminiKey, updateSetting, doImport, handleSecondaryClick, handleShardClick
         }}>
             {children}

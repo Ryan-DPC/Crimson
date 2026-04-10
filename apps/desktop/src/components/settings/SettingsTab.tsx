@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLCU } from '../../contexts/LCUContext';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import { Settings as SettingsIcon, Shield, Bell, Eye, Cpu, Check, Loader2, RefreshCw, Download, Zap } from 'lucide-react';
 
