@@ -37,14 +37,14 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "crates/phantom_server/phantom_server"
+      "bin/phantom_server"
     ]
   },
   "plugins": {
     "shell": {
       "sidecar": [
         {
-          "name": "crates/phantom_server/phantom_server",
+          "name": "bin/phantom_server",
           "args": [
             "--data-path",
              "$APPDATA/com.laoy.crimson/data.json"
