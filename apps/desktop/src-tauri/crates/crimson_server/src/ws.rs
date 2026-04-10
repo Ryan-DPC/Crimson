@@ -36,12 +36,22 @@ async fn handle_connection(stream: TcpStream, sender: WsSender) {
                                 if let Ok(text) = msg.to_text() {
                                     if text.trim().is_empty() { continue; }
                                     // Parse Command and Dispatch
-                                    if let Ok(command) = serde_json::from_str::<lcu_commands::sd_commands::StreamDeckCommand>(text) {
-                                        if let Ok(Some(response_json)) = command.execute_standalone(&sender.0).await {
-                                            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(response_json.to_string().into())).await;
+                                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+                                        if value["type"] == "UPDATE_RESOURCE_MODE" {
+                                            if let Some(low) = value["low_resource"].as_bool() {
+                                                crate::state::set_low_resource_mode(low);
+                                                println!("Resource optimization: {}", if low { "ENABLED" } else { "DISABLED" });
+                                            }
+                                            continue;
+                                        }
+
+                                        if let Ok(command) = serde_json::from_str::<lcu_commands::sd_commands::StreamDeckCommand>(text) {
+                                            if let Ok(Some(response_json)) = command.execute_standalone(&sender.0).await {
+                                                let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(response_json.to_string().into())).await;
+                                            }
                                         }
                                     } else {
-                                        println!("Failed to parse command from Stream Deck: {}", text);
+                                        println!("Failed to parse command from Client: {}", text);
                                     }
                                 }
                             }

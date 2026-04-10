@@ -9,14 +9,21 @@ pub fn start_auto_accept_service(sender: WsSender) {
         let mut interval = interval(Duration::from_millis(1000));
         loop {
             interval.tick().await;
+
+            if crate::state::is_low_resource_mode() {
+                // In low resource mode, we wait an extra 4 seconds (effectively 5s polling)
+                tokio::time::sleep(Duration::from_secs(4)).await;
+            }
             
             let data = storage::load_data_from_path(storage::get_data_path_from_env());
             if data.auto_accept {
                 let _ = check_and_accept(&sender).await;
             }
             
-            // Broadcast current phase and champelect state
-            let _ = broadcast_state(&sender).await;
+            // Only broadcast state if UI is active
+            if !crate::state::is_low_resource_mode() {
+                let _ = broadcast_state(&sender).await;
+            }
         }
     });
 }

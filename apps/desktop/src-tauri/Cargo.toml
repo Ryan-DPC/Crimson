@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/lcu_commands",
-    "crates/phantom_server"
+    "crates/crimson_server"
 ]
 
 [package]

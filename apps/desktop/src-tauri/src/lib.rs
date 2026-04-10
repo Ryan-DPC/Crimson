@@ -56,6 +56,7 @@ pub fn run() {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
+                    let _ = notify_server_resource_mode(false);
                 }
             }
             _ => {}
@@ -67,6 +68,7 @@ pub fn run() {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
+                    let _ = notify_server_resource_mode(false);
                 }
             }
         })
@@ -94,7 +96,7 @@ pub fn run() {
       let pid = std::process::id();
       
       tauri::async_runtime::spawn(async move {
-          let sidecar = sidecar_handle.shell().sidecar("phantom_server").unwrap()
+          let sidecar = sidecar_handle.shell().sidecar("crimson_server").unwrap()
               .args(["--parent-pid", &pid.to_string()]);
           if let Ok((_rx, child)) = sidecar.spawn() {
               let mut lock = sidecar_child_clone.lock().await;
@@ -105,7 +107,6 @@ pub fn run() {
       app.manage(SidecarChild(sidecar_child));
 
       if cfg!(debug_assertions) {
-// ... (lines 97-104)
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
@@ -115,8 +116,10 @@ pub fn run() {
       Ok(())
     })
     .on_window_event(|window, event| {
-// ... (lines 107-123)
         match event {
+            tauri::WindowEvent::Focused(focused) => {
+                let _ = notify_server_resource_mode(!focused);
+            }
             tauri::WindowEvent::Resized(size) => {
                 let handle = window.app_handle();
                 let mut data = storage::load_data(handle);
@@ -148,6 +151,23 @@ pub fn run() {
             });
         }
     });
+}
+
+fn notify_server_resource_mode(low: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn(async move {
+        use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+        use serde_json::json;
+
+        let url = "ws://127.0.0.1:40509";
+        if let Ok((mut ws_stream, _)) = connect_async(url).await {
+            let msg = json!({
+                "type": "UPDATE_RESOURCE_MODE",
+                "low_resource": low
+            }).to_string();
+            let _ = ws_stream.send(Message::Text(msg.into())).await;
+        }
+    });
+    Ok(())
 }
 
 struct SidecarChild(std::sync::Arc<tokio::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>>);
