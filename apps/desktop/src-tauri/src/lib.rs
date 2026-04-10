@@ -1,3 +1,4 @@
+use tauri::Manager;
 use lcu_commands::{lcu, storage, db};
 
 mod commands;
