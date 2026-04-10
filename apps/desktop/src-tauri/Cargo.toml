@@ -26,7 +26,6 @@ tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 lcu_commands = { path = "crates/lcu_commands" }
-phantom_server = { path = "crates/phantom_server" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
@@ -35,6 +34,7 @@ tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
 reqwest = { version = "0.12", features = ["json"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }

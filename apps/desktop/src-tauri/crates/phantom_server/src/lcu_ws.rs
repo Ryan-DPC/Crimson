@@ -1,6 +1,5 @@
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{tungstenite::protocol::Message};
-use tauri::{AppHandle, Manager};
 use serde_json::{json, Value};
 use lcu_commands::lcu;
 use lcu_commands::events::WsSender;
@@ -11,7 +10,7 @@ use rustls::client::danger::{ServerCertVerifier, ServerCertVerified};
 use std::sync::Arc;
 use std::fmt::Debug;
 
-pub async fn start_lcu_ws(handle: AppHandle) {
+pub async fn start_lcu_ws(sender: WsSender) {
     loop {
         let info = match lcu::get_lcu_info() {
             Ok(i) => i,
@@ -44,7 +43,7 @@ pub async fn start_lcu_ws(handle: AppHandle) {
                 let subscribe_msg = json!([5, "OnJsonApiEvent"]).to_string();
                 let _ = ws_stream.send(Message::Text(subscribe_msg.into())).await;
 
-                let ws_internal = handle.state::<WsSender>();
+                let sender_clone = WsSender(sender.0.clone());
 
                 while let Some(msg) = ws_stream.next().await {
                     match msg {
@@ -60,28 +59,24 @@ pub async fn start_lcu_ws(handle: AppHandle) {
                                         match uri {
                                             "/lol-gameflow/v1/gameflow-phase" => {
                                                 let phase = data.as_str().unwrap_or("None");
-                                                let _ = ws_internal.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
+                                                let _ = sender_clone.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
                                                 
                                                 if phase == "ChampSelect" {
                                                     let app_data = lcu_commands::storage::load_data(&handle);
                                                     if !app_data.invisible_automation {
-                                                        if let Some(window) = handle.get_webview_window("main") {
-                                                            let _ = window.show();
-                                                            let _ = window.unminimize();
-                                                            let _ = window.set_focus();
-                                                        }
+                                                        // Sidecar requests the UI to show itself
+                                                        let _ = sender_clone.0.send(json!({"type": "REQUEST_UI_SHOW"}).to_string());
                                                     }
                                                 }
                                             },
                                             "/lol-champ-select/v1/session" => {
                                                 // Simplified broadcast
-                                                let _ = ws_internal.0.send(json!({"type": "CHAMP_SELECT_UPDATE", "data": data}).to_string());
+                                                let _ = sender_clone.0.send(json!({"type": "CHAMP_SELECT_UPDATE", "data": data}).to_string());
                                                 
                                                 // Trigger Automation
-                                                let auto_handle = handle.clone();
                                                 let auto_data = data.clone();
-                                                tauri::async_runtime::spawn(async move {
-                                                    lcu_commands::automation::handle_champ_select(&auto_handle, &auto_data).await;
+                                                tokio::spawn(async move {
+                                                    lcu_commands::automation::handle_champ_select_standalone(&auto_data).await;
                                                 });
                                             },
                                             _ => {}

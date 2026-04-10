@@ -1,34 +1,31 @@
-use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
-use tauri::{AppHandle, Manager};
+use serde_json::json;
 use serde_json::json;
 use lcu_commands::storage;
 use lcu_commands::events::WsSender;
 
-pub async fn start_ws_server(handle: AppHandle) {
+pub async fn start_ws_server(sender: WsSender) {
     let addr = "127.0.0.1:40509".parse::<SocketAddr>().expect("Invalid address");
     if let Ok(listener) = TcpListener::bind(&addr).await {
         while let Ok((stream, _)) = listener.accept().await {
-            let handle_clone = handle.clone();
-            tokio::spawn(handle_connection(stream, handle_clone));
+            let sender_clone = WsSender(sender.0.clone());
+            tokio::spawn(handle_connection(stream, sender_clone));
         }
     }
 }
 
-    async fn handle_connection(stream: TcpStream, handle: AppHandle) {
-        if let Ok(mut ws_stream) = accept_async(stream).await {
-            
-            let data = storage::load_data(&handle);
-            let initial_state = json!({
-                "type": "AUTO_ACCEPT_STATE",
-                "enabled": data.auto_accept
-            });
-            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(initial_state.to_string().into())).await;
+async fn handle_connection(stream: TcpStream, sender: WsSender) {
+    if let Ok(mut ws_stream) = accept_async(stream).await {
+        
+        let data = storage::load_data_from_path(storage::get_data_path_from_env());
+        let initial_state = json!({
+            "type": "AUTO_ACCEPT_STATE",
+            "enabled": data.auto_accept
+        });
+        let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(initial_state.to_string().into())).await;
 
-            let state = handle.state::<WsSender>();
-            let mut rx = state.0.subscribe();
+        let mut rx = sender.0.subscribe();
 
             loop {
                 tokio::select! {

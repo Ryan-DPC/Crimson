@@ -89,7 +89,7 @@ impl Default for AppData {
     }
 }
 
-pub fn get_data_path(_app: &AppHandle) -> PathBuf {
+pub fn get_data_path_from_env() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
         let path = PathBuf::from(appdata).join("com.laoy.crimson");
         if !path.exists() {
@@ -101,8 +101,11 @@ pub fn get_data_path(_app: &AppHandle) -> PathBuf {
     }
 }
 
-pub fn load_data(app: &AppHandle) -> AppData {
-    let path = get_data_path(app);
+pub fn get_data_path(_app: &AppHandle) -> PathBuf {
+    get_data_path_from_env()
+}
+
+pub fn load_data_from_path(path: PathBuf) -> AppData {
     if let Ok(content) = fs::read_to_string(path) {
         serde_json::from_str(&content).unwrap_or_default()
     } else {
@@ -110,11 +113,18 @@ pub fn load_data(app: &AppHandle) -> AppData {
     }
 }
 
-pub fn save_data(app: &AppHandle, data: &AppData) {
-    let path = get_data_path(app);
+pub fn load_data(app: &AppHandle) -> AppData {
+    load_data_from_path(get_data_path(app))
+}
+
+pub fn save_data_to_path(path: PathBuf, data: &AppData) {
     if let Ok(content) = serde_json::to_string_pretty(data) {
         let _ = fs::write(path, content);
     }
+}
+
+pub fn save_data(app: &AppHandle, data: &AppData) {
+    save_data_to_path(get_data_path(app), data);
 }
 
 #[tauri::command]

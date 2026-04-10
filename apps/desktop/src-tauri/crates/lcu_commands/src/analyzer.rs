@@ -32,6 +32,14 @@ pub struct RuneBuild {
 
 #[tauri::command]
 pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>, index: i32) -> Result<RuneBuild, String> {
+    let pool = app.state::<crate::db::DbPool>();
+    let data = storage::load_data(&app);
+    let key = data.gemini_api_key.unwrap_or_default();
+    
+    fetch_single_build_standalone(&pool, key, champion_name, role, opponent, patch, index).await
+}
+
+pub async fn fetch_single_build_standalone(pool: &crate::db::DbPool, api_key: String, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>, index: i32) -> Result<RuneBuild, String> {
     let normalized_role = match role.to_lowercase().as_str() {
         "top" => "top",
         "jungle" => "jungle",
@@ -42,11 +50,10 @@ pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: Str
     };
 
     let current_patch = patch.unwrap_or_else(|| "15.5.1".to_string());
-    let pool = app.state::<crate::db::DbPool>();
 
     // 1. Check Cache (only for index 1 and 3)
     if index == 1 || index == 3 {
-        let cached_map = crate::db::get_cached_runes(&pool, &champion_name, &normalized_role, &current_patch).unwrap_or_default();
+        let cached_map = crate::db::get_cached_runes(pool, &champion_name, &normalized_role, &current_patch).unwrap_or_default();
         if let Some(data) = cached_map.get(&index) {
             if let Ok(b) = serde_json::from_str::<RuneBuild>(data) {
                 return Ok(b);
@@ -55,10 +62,7 @@ pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: Str
     }
 
     // 2. Fetch from Gemini
-    let data = storage::load_data(&app);
-    let key = data.gemini_api_key.unwrap_or_default();
-    
-    if !key.is_empty() {
+    if !api_key.is_empty() {
         let build_type = match index {
             1 => "Most Popular/Meta",
             2 => "Situational Counter",
@@ -66,12 +70,12 @@ pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: Str
             _ => "Standard",
         };
 
-        match fetch_gemini_single(&key, &champion_name, normalized_role, opponent.clone(), build_type).await {
+        match fetch_gemini_single(&api_key, &champion_name, normalized_role, opponent.clone(), build_type).await {
             Ok(b) => {
                 // Save to Cache if index 1 or 3
                 if index == 1 || index == 3 {
                     if let Ok(serialized) = serde_json::to_string(&b) {
-                        let _ = crate::db::save_rune_cache(&pool, &champion_name, &normalized_role, &current_patch, index, &serialized);
+                        let _ = crate::db::save_rune_cache(pool, &champion_name, &normalized_role, &current_patch, index, &serialized);
                     }
                 }
                 return Ok(b);
@@ -90,10 +94,17 @@ pub async fn fetch_single_build(app: AppHandle, champion_name: String, role: Str
 
 #[tauri::command]
 pub async fn fetch_dynamic_runes(app: AppHandle, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>) -> Result<Vec<RuneBuild>, String> {
-    // Deprecated wrapper for backward compatibility or bulk fetches
+    let pool = app.state::<crate::db::DbPool>();
+    let data = storage::load_data(&app);
+    let key = data.gemini_api_key.unwrap_or_default();
+    
+    fetch_dynamic_runes_standalone(&pool, key, champion_name, role, opponent, patch).await
+}
+
+pub async fn fetch_dynamic_runes_standalone(pool: &crate::db::DbPool, api_key: String, champion_name: String, role: String, opponent: Option<String>, patch: Option<String>) -> Result<Vec<RuneBuild>, String> {
     let mut builds = Vec::new();
     for i in 1..=3 {
-        if let Ok(b) = fetch_single_build(app.clone(), champion_name.clone(), role.clone(), opponent.clone(), patch.clone(), i).await {
+        if let Ok(b) = fetch_single_build_standalone(pool, api_key.clone(), champion_name.clone(), role.clone(), opponent.clone(), patch.clone(), i).await {
             builds.push(b);
         }
     }

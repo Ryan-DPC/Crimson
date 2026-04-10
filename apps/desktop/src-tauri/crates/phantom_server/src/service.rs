@@ -1,100 +1,50 @@
-use lcu_commands::{lcu, storage, db};
+use lcu_commands::{lcu, storage};
 use std::time::Duration;
 use tokio::time::interval;
-use tauri::{AppHandle, Manager};
-use serde_json::{self, json};
+use serde_json::json;
 use lcu_commands::events::WsSender;
 
-pub fn start_auto_accept_service(handle: AppHandle) {
-    tauri::async_runtime::spawn(async move {
+pub fn start_auto_accept_service(sender: WsSender) {
+    tokio::spawn(async move {
         let mut interval = interval(Duration::from_millis(1000));
         loop {
             interval.tick().await;
             
-            let data = storage::load_data(&handle);
+            let data = storage::load_data_from_path(storage::get_data_path_from_env());
             if data.auto_accept {
-                let _ = check_and_accept(&handle).await;
+                let _ = check_and_accept(&sender).await;
             }
             
             // Broadcast current phase and champelect state
-            let _ = broadcast_state(&handle).await;
+            let _ = broadcast_state(&sender).await;
         }
     });
 }
 
-use tauri_plugin_notification::NotificationExt;
-
-async fn check_and_accept(handle: &AppHandle) -> Result<(), String> {
+async fn check_and_accept(sender: &WsSender) -> Result<(), String> {
     // 1. Auto-Accept Logic
     let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None).await;
     if let Ok(json) = ready_check {
         if json.contains("\"InProgress\"") {
             let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None).await;
             
-            // Send native notification
-            let _ = handle.notification()
-                .builder()
-                .title("CRIMSON")
-                .body("Match accepté automatiquement !")
-                .show();
+            // Send WebSocket notification for the UI to display
+            let _ = sender.0.send(json!({
+                "type": "NATIVE_NOTIFICATION",
+                "title": "CRIMSON",
+                "body": "Match accepté automatiquement !"
+            }).to_string());
         }
     }
 
-    // 2. Harvesting Logic (Simplified for MVP)
-    // We check if we are in EndOfGame to grab the last match
-    let session = lcu::lcu_request("GET".into(), "/lol-gameflow/v1/session".into(), None).await;
-    if let Ok(json) = session {
-        if json.contains("\"EndOfGame\"") {
-            // Fetch last match ID from the client's history
-            let summoner = lcu::lcu_request("GET".into(), "/lol-summoner/v1/current-summoner".into(), None).await;
-            if let Ok(s_json) = summoner {
-                let s: serde_json::Value = serde_json::from_str(&s_json).unwrap_or_default();
-                if let Some(puuid) = s["puuid"].as_str() {
-                    let history = lcu::lcu_request("GET".into(), format!("/lol-match-history/v1/products/league-of-legends/{}/matches?begIndex=0&endIndex=1", puuid), None).await;
-                    if let Ok(h_json) = history {
-                        let h: serde_json::Value = serde_json::from_str(&h_json).unwrap_or_default();
-                        if let Some(g) = h["games"]["games"][0].as_object() {
-                            let match_id = g["gameId"].as_u64().unwrap_or(0);
-                            let mut data = storage::load_data(handle);
-                            if !data.match_ids.contains(&match_id) {
-                                // Extract stats for the player
-                                if let Some(p) = g["participants"][0].as_object() {
-                                    let stats = &p["stats"];
-                                    let db_match = db::DbMatch {
-                                        game_id: match_id,
-                                        timestamp: g["gameCreation"].as_u64().unwrap_or(0),
-                                        champion_id: p["championId"].as_u64().unwrap_or(0) as u32,
-                                        kills: stats["kills"].as_u64().unwrap_or(0) as u32,
-                                        deaths: stats["deaths"].as_u64().unwrap_or(0) as u32,
-                                        assists: stats["assists"].as_u64().unwrap_or(0) as u32,
-                                        win: stats["win"].as_bool().unwrap_or(false),
-                                        queue_id: g["gameQueueId"].as_u64().unwrap_or(0) as u32,
-                                        game_duration: g["gameDuration"].as_u64().unwrap_or(0),
-                                    };
-                                    let pool = handle.state::<db::DbPool>();
-                                    let _ = db::insert_match(&*pool, &db_match);
-                                }
-                                
-                                data.match_ids.push(match_id);
-                                storage::save_data(handle, &data);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
     Ok(())
 }
 
-async fn broadcast_state(handle: &AppHandle) -> Result<(), String> {
-    let ws = handle.state::<WsSender>();
-    
+async fn broadcast_state(sender: &WsSender) -> Result<(), String> {
     // 1. Get Gameflow Phase
     if let Ok(phase_json) = lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None).await {
         let phase: String = serde_json::from_str(&phase_json).unwrap_or_else(|_| "None".to_string());
-        let _ = ws.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
+        let _ = sender.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
     }
 
     // 2. Get Champ Select State (if in ChampSelect)
@@ -125,7 +75,7 @@ async fn broadcast_state(handle: &AppHandle) -> Result<(), String> {
                 }
             }
 
-            let _ = ws.0.send(json!({
+            let _ = sender.0.send(json!({
                 "type": "CHAMP_SELECT", 
                 "championId": my_champ_id,
                 "championName": my_champ_name
@@ -133,7 +83,7 @@ async fn broadcast_state(handle: &AppHandle) -> Result<(), String> {
         }
     }
 
-    // 3. Get Rank (occasionally or if data is empty)
+    // 3. Get Rank (occasionally)
     if let Ok(rank_json) = lcu::lcu_request("GET".into(), "/lol-ranked/v1/current-ranked-stats".into(), None).await {
          if let Ok(rank_data) = serde_json::from_str::<serde_json::Value>(&rank_json) {
              let queues = rank_data["queues"].as_array();
@@ -152,7 +102,7 @@ async fn broadcast_state(handle: &AppHandle) -> Result<(), String> {
              let tft_division = tft_queue["division"].as_str().unwrap_or("");
              let tft_lp = tft_queue["leaguePoints"].as_u64().unwrap_or(0);
 
-             let _ = ws.0.send(json!({
+             let _ = sender.0.send(json!({
                  "type": "RANK_UPDATE", 
                  "tier": tier, 
                  "division": division, 

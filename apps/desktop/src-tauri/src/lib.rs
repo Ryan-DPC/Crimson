@@ -1,6 +1,4 @@
-use tauri::Manager;
 use lcu_commands::{lcu, storage, db};
-use phantom_server::{ws, lcu_ws, service};
 
 mod commands;
 
@@ -9,6 +7,7 @@ pub fn run() {
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
     .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
         lcu::get_lcu_info,
         lcu::lcu_request,
@@ -86,16 +85,12 @@ pub fn run() {
       data.auto_accept = true;
       storage::save_data(&handle, &data);
 
-      service::start_auto_accept_service(handle.clone());
-
-      let ws_handle = handle.clone();
+      // Launch Sidecar
+      use tauri_plugin_shell::ShellExt;
+      let sidecar_handle = handle.clone();
       tauri::async_runtime::spawn(async move {
-          ws::start_ws_server(ws_handle).await;
-      });
-
-      let lcu_handle = handle.clone();
-      tauri::async_runtime::spawn(async move {
-          lcu_ws::start_lcu_ws(lcu_handle).await;
+          let sidecar = sidecar_handle.shell().sidecar("phantom_server").unwrap();
+          let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn sidecar");
       });
       
       if cfg!(debug_assertions) {

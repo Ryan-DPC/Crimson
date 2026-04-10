@@ -1,8 +1,8 @@
-use tauri::AppHandle;
-use serde_json::Value;
-use crate::{lcu, storage};
-
 pub async fn handle_champ_select(handle: &AppHandle, data: &Value) {
+    handle_champ_select_standalone(data).await
+}
+
+pub async fn handle_champ_select_standalone(data: &Value) {
     let local_player_cell_id = data["localPlayerCellId"].as_i64().unwrap_or(-1);
     if local_player_cell_id == -1 { return; }
 
@@ -11,7 +11,7 @@ pub async fn handle_champ_select(handle: &AppHandle, data: &Value) {
         None => return,
     };
 
-    let app_data = storage::load_data(handle);
+    let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
     
     for group in actions {
         if let Some(group_arr) = group.as_array() {
