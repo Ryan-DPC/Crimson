@@ -12,9 +12,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 env:
   CARGO_INCREMENTAL: 0
   CACHE_VERSION: v1
