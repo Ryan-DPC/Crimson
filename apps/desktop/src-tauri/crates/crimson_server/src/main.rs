@@ -1,6 +1,6 @@
 use tokio::sync::broadcast;
 use lcu_commands::events::WsSender;
-use phantom_server::{ws, lcu_ws, service};
+use crimson_server::{ws, lcu_ws, service};
 use clap::Parser;
 use sysinfo::{System, Pid};
 use std::time::Duration;
@@ -27,7 +27,7 @@ async fn main() {
             let pid = Pid::from(pid as usize);
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
-                sys.refresh_processes(sysinfo::ProcessesToRefresh::All);
+                sys.refresh_processes();
                 if sys.process(pid).is_none() {
                     println!("Parent process {} not found. Exiting sidecar.", pid);
                     std::process::exit(0);
