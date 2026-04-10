@@ -20,59 +20,16 @@ import {
 function App() {
   const { 
     tab, setTab, simMode, toggleSimMode, 
-    gamePhase, rank, sum, appData, updateSetting
+    gamePhase, rank, sum, appData, updateSetting,
+    updateStatus, updateProgress, availableVersion, installUpdate
   } = useLCU();
 
   const [appVersion, setAppVersion] = useState<string>('1.1.0');
   const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [remoteUpdate, setRemoteUpdate] = useState<{ version: string, url: string } | null>(null);
+  const [showUpdateNotif, setShowUpdateNotif] = useState(true);
 
   useEffect(() => {
-    const initApp = async () => {
-      // Get real version from Tauri
-      try {
-        const v = await getVersion();
-        setAppVersion(v);
-        
-        // Manual GitHub Check as alternative to signed updater
-        try {
-          const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
-          if (resp.ok) {
-            const data = await resp.json();
-            let highestV = v;
-            let bestUrl = '';
-            
-            const isNewer = (remote: string, local: string) => {
-              const pR = remote.replace('v', '').split('.').map(Number);
-              const pL = local.replace('v', '').split('.').map(Number);
-              for (let i = 0; i < 3; i++) {
-                if ((pR[i] || 0) > (pL[i] || 0)) return true;
-                if ((pR[i] || 0) < (pL[i] || 0)) return false;
-              }
-              return false;
-            };
-
-            for (const release of data) {
-              const relV = release.tag_name.replace('v', '');
-              if (isNewer(relV, highestV)) {
-                highestV = relV;
-                bestUrl = release.html_url;
-              }
-            }
-            
-            if (highestV !== v) {
-              setRemoteUpdate({ version: highestV, url: bestUrl });
-            }
-          }
-        } catch (e) {
-          console.warn('GitHub update check failed:', e);
-        }
-      } catch (e) {
-        console.error('Failed to get version:', e);
-      }
-    };
-
-    initApp();
+    getVersion().then(setAppVersion).catch(console.error);
   }, []);
 
   const handleWindowCommand = async (command: 'minimize' | 'maximize' | 'close') => {
@@ -209,24 +166,40 @@ function App() {
         </div>
         
         {/* GitHub Update Notification */}
-        {remoteUpdate && (
+        {availableVersion && showUpdateNotif && (
           <div className="absolute top-4 right-4 z-50 animate-in fade-in slide-in-from-right-4 duration-500">
             <div className="bg-[#1a1a20]/95 border border-red-500/30 p-4 rounded-xl shadow-[0_0_30px_rgba(239,68,68,0.15)] flex items-center gap-4 backdrop-blur-md">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <Download className="w-5 h-5 text-red-500 animate-bounce" />
+                {updateStatus === 'installing' ? (
+                   <div className="relative w-8 h-8 flex items-center justify-center">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                          <circle cx="18" cy="18" r="16" fill="none" className="stroke-white/10" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="16" fill="none" className="stroke-red-500" strokeWidth="3" strokeDasharray={`${updateProgress}, 100`} />
+                      </svg>
+                      <span className="absolute text-[8px] font-black text-white">{updateProgress}%</span>
+                   </div>
+                ) : (
+                  <Download className="w-5 h-5 text-red-500 animate-bounce" />
+                )}
               </div>
               <div>
-                <p className="text-white font-bold text-sm tracking-tight">Mise à jour disponible (v{remoteUpdate.version})</p>
-                <p className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-0.5">Nouvelle version sur GitHub</p>
+                <p className="text-white font-bold text-sm tracking-tight">
+                  {updateStatus === 'installing' ? "Installation en cours..." : `Mise à jour disponible (v${availableVersion})`}
+                </p>
+                <p className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-0.5">
+                  {updateStatus === 'installing' ? "L'application va redémarrer" : "Nouvelle version sur GitHub"}
+                </p>
               </div>
+              {updateStatus !== 'installing' && (
+                <button 
+                  onClick={() => installUpdate()}
+                  className="ml-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95"
+                >
+                  Mettre à jour
+                </button>
+              )}
               <button 
-                onClick={() => window.open(remoteUpdate.url, '_blank')}
-                className="ml-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95"
-              >
-                Mettre à jour
-              </button>
-              <button 
-                 onClick={() => setRemoteUpdate(null)}
+                 onClick={() => setShowUpdateNotif(false)}
                  className="p-1 hover:bg-white/5 rounded-full"
               >
                 <X className="w-4 h-4 text-white/20" />

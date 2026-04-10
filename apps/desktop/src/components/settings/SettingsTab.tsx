@@ -27,27 +27,18 @@ const Toggle = ({ value, onChange, label, description }: {
 );
 
 const SettingsTab = () => {
-    const { appData, updateGeminiKey, updateSetting } = useLCU();
+    const { 
+        appData, updateGeminiKey, updateSetting,
+        updateStatus, updateProgress, availableVersion, 
+        checkUpdates, installUpdate
+    } = useLCU();
     const [keyInput, setKeyInput] = useState(appData?.geminiApiKey || '');
     const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
     const [isEditingKey, setIsEditingKey] = useState(!appData?.geminiApiKey);
-    const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
-    const [availableVersion, setAvailableVersion] = useState<string | null>(null);
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
-    const [downloadProgress, setDownloadProgress] = useState(0);
 
     useEffect(() => {
         getVersion().then(setCurrentVersion).catch(console.error);
-        
-        let unlistenProgress: any;
-        listen('update-progress', (event: any) => {
-            const payload = event.payload as { downloaded: number, total: number };
-            if (payload.total > 0) {
-                setDownloadProgress(Math.round((payload.downloaded / payload.total) * 100));
-            }
-        }).then(u => unlistenProgress = u);
-        
-        return () => { if(unlistenProgress) unlistenProgress(); }
     }, []);
 
     useEffect(() => {
@@ -64,71 +55,6 @@ const SettingsTab = () => {
             setStatus('success');
             setTimeout(() => setStatus('idle'), 3000);
         }, 800);
-    };
-
-    const handleCheckUpdate = async () => {
-        setUpdateStatus('checking');
-        try {
-            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
-            if (resp.ok) {
-                const data = await resp.json();
-                let highestV = currentVersion;
-                let foundNewer = false;
-                
-                const isNewer = (remote: string, local: string) => {
-                  const pR = remote.replace('v', '').split('.').map(Number);
-                  const pL = local.replace('v', '').split('.').map(Number);
-                  for (let i = 0; i < 3; i++) {
-                    if ((pR[i] || 0) > (pL[i] || 0)) return true;
-                    if ((pR[i] || 0) < (pL[i] || 0)) return false;
-                  }
-                  return false;
-                };
-
-                for (const release of data) {
-                  const relV = release.tag_name.replace('v', '');
-                  if (isNewer(relV, highestV)) {
-                    highestV = relV;
-                    foundNewer = true;
-                  }
-                }
-                
-                if (foundNewer) {
-                    setAvailableVersion(highestV);
-                    setUpdateStatus('available');
-                } else {
-                    setUpdateStatus('up-to-date');
-                    setTimeout(() => setUpdateStatus('idle'), 4000);
-                }
-            } else {
-                setUpdateStatus('idle');
-            }
-        } catch {
-            setUpdateStatus('idle');
-        }
-    };
-
-    const handleInstallUpdate = async () => {
-        setUpdateStatus('installing');
-        setDownloadProgress(0);
-        try {
-            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
-            if (resp.ok) {
-                const data = await resp.json();
-                const targetRelease = data.find((r: any) => r.tag_name.replace('v', '') === availableVersion);
-                const assetInfo = targetRelease?.assets.find((a: any) => a.name.endsWith('.exe'));
-                
-                if (assetInfo) {
-                     await invoke('download_and_install_update', { url: assetInfo.browser_download_url });
-                } else {
-                     setUpdateStatus('available');
-                }
-            } else {
-                setUpdateStatus('available');
-            }
-        } catch {
-            setUpdateStatus('available');
-        }
     };
 
     return (
@@ -211,7 +137,7 @@ const SettingsTab = () => {
                         </div>
                         <div className="flex gap-3 items-center">
                             {updateStatus === 'available' && (
-                                <button onClick={handleInstallUpdate} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                                <button onClick={() => installUpdate()} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]">
                                     <Download className="w-3.5 h-3.5" /> Installer
                                 </button>
                             )}
@@ -225,16 +151,16 @@ const SettingsTab = () => {
                                         />
                                         <path
                                             className="text-red-500 transition-all duration-300"
-                                            strokeDasharray={`${downloadProgress}, 100`}
+                                            strokeDasharray={`${updateProgress}, 100`}
                                             strokeWidth="3.5" stroke="currentColor" fill="none" strokeLinecap="round"
                                             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                                         />
                                     </svg>
-                                    <span className="absolute text-[9px] font-black tracking-tighter text-white">{downloadProgress}%</span>
+                                    <span className="absolute text-[9px] font-black tracking-tighter text-white">{updateProgress}%</span>
                                 </div>
                             )}
                             {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'checking') && (
-                                <button onClick={handleCheckUpdate} disabled={updateStatus === 'checking'} className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">
+                                <button onClick={checkUpdates} disabled={updateStatus === 'checking'} className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/60 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">
                                     <RefreshCw className={`w-3.5 h-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} /> Vérifier
                                 </button>
                             )}

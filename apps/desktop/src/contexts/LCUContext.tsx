@@ -18,10 +18,15 @@ interface LCUContextType {
     v: string;
     myChamp: number;
     enemyMid: string | null;
-    isLoadingBuilds: boolean;
     builds: (RuneBuild | null)[];
     isImporting: number | null;
     appData: any;
+    
+    // Update State
+    updateStatus: 'idle' | 'checking' | 'up-to-date' | 'available' | 'installing';
+    updateProgress: number;
+    availableVersion: string | null;
+    remoteUpdateAssetUrl: string | null;
     
     // Actions
     setTab: (tab: string) => void;
@@ -35,6 +40,8 @@ interface LCUContextType {
     doImport: (build: RuneBuild, index: number) => Promise<void>;
     handleSecondaryClick: (buildIndex: number, runeId: number, slotIndex: number) => void;
     handleShardClick: (buildIndex: number, rIdx: number, shardId: number) => void;
+    checkUpdates: () => Promise<void>;
+    installUpdate: (url?: string) => Promise<void>;
 }
 
 const LCUContext = createContext<LCUContextType | undefined>(undefined);
@@ -68,10 +75,96 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [tab, setTab] = useState('home');
     const [appData, setAppData] = useState<any>(null);
 
+    // Update State
+    const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
+    const [updateProgress, setUpdateProgress] = useState(0);
+    const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+    const [remoteUpdateAssetUrl, setRemoteUpdateAssetUrl] = useState<string | null>(null);
+
     const scannedLobbyId = useRef<string>('');
     const lastFetchParams = useRef<string>('');
     const hasFetchedInitialState = useRef<boolean>(false);
     const champsRef = useRef<any[]>([]);
+
+    // --- UPDATER ---
+    const checkUpdates = async () => {
+        if (updateStatus === 'installing') return;
+        setUpdateStatus('checking');
+        try {
+            const { getVersion } = await import('@tauri-apps/api/app');
+            const currentV = await getVersion();
+            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
+            if (resp.ok) {
+                const data = await resp.json();
+                let highestV = currentV;
+                let bestUrl = null;
+                
+                const isNewer = (remote: string, local: string) => {
+                  const pR = remote.replace('v', '').split('.').map(Number);
+                  const pL = local.replace('v', '').split('.').map(Number);
+                  for (let i = 0; i < 3; i++) {
+                    if ((pR[i] || 0) > (pL[i] || 0)) return true;
+                    if ((pR[i] || 0) < (pL[i] || 0)) return false;
+                  }
+                  return false;
+                };
+
+                for (const release of data) {
+                  const relV = release.tag_name.replace('v', '');
+                  if (isNewer(relV, highestV)) {
+                    highestV = relV;
+                    const asset = release.assets.find((a: any) => a.name.endsWith('.exe'));
+                    if (asset) bestUrl = asset.browser_download_url;
+                  }
+                }
+                
+                if (bestUrl) {
+                    setAvailableVersion(highestV);
+                    setRemoteUpdateAssetUrl(bestUrl);
+                    setUpdateStatus('available');
+                } else {
+                    setUpdateStatus('up-to-date');
+                    setTimeout(() => setUpdateStatus('idle'), 4000);
+                }
+            } else { setUpdateStatus('idle'); }
+        } catch { setUpdateStatus('idle'); }
+    };
+
+    useEffect(() => {
+        const init = async () => {
+            await checkUpdates();
+        };
+        init();
+    }, []);
+
+    const installUpdate = async (url?: string) => {
+        const targetUrl = url || remoteUpdateAssetUrl;
+        if (!targetUrl) return;
+        
+        setUpdateStatus('installing');
+        setUpdateProgress(0);
+        try {
+            await invoke('download_and_install_update', { url: targetUrl });
+        } catch (e) {
+            console.error("Installation error", e);
+            setUpdateStatus('available');
+        }
+    };
+
+    useEffect(() => {
+        let unlisten: any;
+        const setupListener = async () => {
+            const { listen } = await import('@tauri-apps/api/event');
+            unlisten = await listen('update-progress', (event: any) => {
+                const payload = event.payload as { downloaded: number, total: number };
+                if (payload.total > 0) {
+                    setUpdateProgress(Math.round((payload.downloaded / payload.total) * 100));
+                }
+            });
+        };
+        setupListener();
+        return () => { if (unlisten) unlisten(); };
+    }, []);
 
     // --- UTILS ---
     const fetchAllyRadar = async (team: any[], currentLobbyId: string) => {
