@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{AppHandle, Emitter};
 use reqwest::Client;
 use std::fs::File;
 use std::io::Write;

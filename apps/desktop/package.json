@@ -1,7 +1,7 @@
 {
   "name": "crimson",
   "private": true,
-  "version": "1.1.6",
+  "version": "1.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,8 @@
     "test:e2e": "set CRIMSON_MOCK_LCU=true&& tauri dev"
   },
   "dependencies": {
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "lucide-react": "^1.7.0",
     "react": "^19.2.0",

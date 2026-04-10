@@ -44,6 +44,20 @@ pub struct AppData {
     pub dark_glass_mode: bool,
     #[serde(default)]
     pub reduced_animations: bool,
+
+    // Windows integration
+    #[serde(default)]
+    pub close_to_tray: Option<bool>,
+    #[serde(default)]
+    pub launch_on_startup: bool,
+    #[serde(default)]
+    pub window_x: Option<i32>,
+    #[serde(default)]
+    pub window_y: Option<i32>,
+    #[serde(default)]
+    pub window_width: Option<u32>,
+    #[serde(default)]
+    pub window_height: Option<u32>,
 }
 
 fn default_true() -> bool { true }
@@ -65,6 +79,12 @@ impl Default for AppData {
             invisible_automation: false,
             dark_glass_mode: true,
             reduced_animations: false,
+            close_to_tray: None,
+            launch_on_startup: false,
+            window_x: None,
+            window_y: None,
+            window_width: None,
+            window_height: None,
         }
     }
 }

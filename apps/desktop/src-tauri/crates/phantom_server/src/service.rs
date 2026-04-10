@@ -22,12 +22,21 @@ pub fn start_auto_accept_service(handle: AppHandle) {
     });
 }
 
+use tauri_plugin_notification::NotificationExt;
+
 async fn check_and_accept(handle: &AppHandle) -> Result<(), String> {
     // 1. Auto-Accept Logic
     let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None).await;
     if let Ok(json) = ready_check {
         if json.contains("\"InProgress\"") {
             let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None).await;
+            
+            // Send native notification
+            let _ = handle.notification()
+                .builder()
+                .title("CRIMSON")
+                .body("Match accepté automatiquement !")
+                .show();
         }
     }
 

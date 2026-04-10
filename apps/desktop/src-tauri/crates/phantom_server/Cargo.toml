@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 lcu_commands = { path = "../lcu_commands" }
 tauri = { version = "2.10.3", features = [] }
+tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.21.0", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"

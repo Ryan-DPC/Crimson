@@ -20,10 +20,11 @@ import {
 function App() {
   const { 
     tab, setTab, simMode, toggleSimMode, 
-    gamePhase, rank, sum, appData 
+    gamePhase, rank, sum, appData, updateSetting
   } = useLCU();
 
   const [appVersion, setAppVersion] = useState<string>('1.1.0');
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [remoteUpdate, setRemoteUpdate] = useState<{ version: string, url: string } | null>(null);
 
   useEffect(() => {
@@ -80,7 +81,20 @@ function App() {
       const appWindow = getCurrentWindow();
       if (command === 'minimize') await appWindow.minimize();
       if (command === 'maximize') await appWindow.toggleMaximize();
-      if (command === 'close') await appWindow.hide();
+      if (command === 'close') {
+        if (appData?.closeToTray === undefined) {
+          setShowCloseDialog(true);
+        } else if (appData.closeToTray) {
+          await appWindow.hide();
+        } else {
+          try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            await invoke('crimson_quit_app');
+          } catch(e) {
+            console.error('Failed to invoke crimson_quit_app:', e);
+          }
+        }
+      }
     } catch (e) {
       console.warn('Window command failed, likely not in Tauri context:', e);
     }
@@ -263,6 +277,41 @@ function App() {
           </div>
         </div>
       </footer>
+
+      {/* Close Configuration Dialog */}
+      {showCloseDialog && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-[#111115] border border-white/10 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] max-w-sm w-full mx-4">
+            <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2">Fermeture</h2>
+            <p className="text-white/50 text-xs font-bold leading-relaxed mb-6">
+              Voulez-vous réduire l'application dans la zone de notification (en arrière-plan) ou la quitter complètement ?
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  updateSetting('closeToTray', true);
+                  setShowCloseDialog(false);
+                  setTimeout(() => handleWindowCommand('close'), 100);
+                }}
+                className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+              >
+                Minimiser (Recommandé)
+              </button>
+              <button
+                onClick={() => {
+                  updateSetting('closeToTray', false);
+                  setShowCloseDialog(false);
+                  setTimeout(() => handleWindowCommand('close'), 100);
+                }}
+                className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white/70 hover:text-white text-xs font-black uppercase tracking-widest transition-all"
+              >
+                Quitter l'application
+              </button>
+            </div>
+            <p className="text-center text-[9px] text-white/30 uppercase tracking-widest mt-4">Vous pourrez changer ceci dans les paramètres.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

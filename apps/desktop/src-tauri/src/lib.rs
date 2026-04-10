@@ -1,12 +1,14 @@
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-
 use tauri::Manager;
-use lcu_commands::{lcu, storage, analyzer, db};
+use lcu_commands::{lcu, storage, db};
 use phantom_server::{ws, lcu_ws, service};
+
+mod commands;
 
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+    .plugin(tauri_plugin_notification::init())
     .invoke_handler(tauri::generate_handler![
         lcu::get_lcu_info,
         lcu::lcu_request,
@@ -19,9 +21,24 @@ pub fn run() {
         lcu_commands::analyzer::fetch_dynamic_runes,
         db::get_all_matches,
         lcu::fetch_ddragon_url,
-        lcu_commands::updater_cmd::download_and_install_update
+        lcu_commands::updater_cmd::download_and_install_update,
+        commands::crimson_quit_app,
+        commands::crimson_toggle_autostart
     ])
     .setup(|app| {
+      let handle = app.handle().clone();
+      let data = storage::load_data(&handle);
+
+      // Restore window geometry
+      if let Some(window) = app.get_webview_window("main") {
+          if let (Some(x), Some(y)) = (data.window_x, data.window_y) {
+              let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+          }
+          if let (Some(width), Some(height)) = (data.window_width, data.window_height) {
+              let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }));
+          }
+      }
+
       let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Quitter Crimson", true, None::<&str>)?;
       let show_i = tauri::menu::MenuItem::with_id(app, "show", "Panneau de Controle", true, None::<&str>)?;
       let menu = tauri::menu::Menu::with_items(app, &[&show_i, &quit_i])?;
@@ -90,12 +107,24 @@ pub fn run() {
       }
       Ok(())
     })
-    .on_window_event(|window, event| match event {
-      tauri::WindowEvent::CloseRequested { api, .. } => {
-        let _ = window.hide();
-        api.prevent_close();
-      }
-      _ => {}
+    .on_window_event(|window, event| {
+        match event {
+            tauri::WindowEvent::Resized(size) => {
+                let handle = window.app_handle();
+                let mut data = storage::load_data(handle);
+                data.window_width = Some(size.width);
+                data.window_height = Some(size.height);
+                storage::save_data(handle, &data);
+            }
+            tauri::WindowEvent::Moved(pos) => {
+                let handle = window.app_handle();
+                let mut data = storage::load_data(handle);
+                data.window_x = Some(pos.x);
+                data.window_y = Some(pos.y);
+                storage::save_data(handle, &data);
+            }
+            _ => {}
+        }
     })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

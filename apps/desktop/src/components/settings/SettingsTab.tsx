@@ -257,6 +257,15 @@ const SettingsTab = () => {
                                 onChange={(v) => updateSetting('autoAccept', v)}
                             />
                             <Toggle
+                                label="Lancer au démarrage"
+                                description="Lance Crimson au démarrage de Windows"
+                                value={appData?.launchOnStartup ?? false}
+                                onChange={async (v) => {
+                                    await invoke('crimson_toggle_autostart', { enable: v });
+                                    updateSetting('launchOnStartup', v);
+                                }}
+                            />
+                            <Toggle
                                 label="Draft Warnings"
                                 description="Alertes sur les mauvais picks alliés"
                                 value={appData?.draftWarnings ?? true}
@@ -288,6 +297,12 @@ const SettingsTab = () => {
                                 description="Désactive les effets de transition"
                                 value={appData?.reducedAnimations ?? false}
                                 onChange={(v) => updateSetting('reducedAnimations', v)}
+                            />
+                            <Toggle
+                                label="Fermer dans la zone de notification"
+                                description="Minimiser l'application avec la croix au lieu de la quitter"
+                                value={appData?.closeToTray ?? false}
+                                onChange={(v) => updateSetting('closeToTray', v)}
                             />
                         </div>
                     </div>
