@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_INCREMENTAL: 0
+  CACHE_VERSION: v1
+
 jobs:
   build-frontend:
     runs-on: ubuntu-latest
@@ -42,9 +46,9 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: sidecar-cache
+          key: ${{ env.CACHE_VERSION }}
           workspaces: |
-            apps/desktop/src-tauri/crates/phantom_server -> target
+            apps/desktop/src-tauri -> target
       - name: Build Sidecar
         run: cargo build -p phantom_server --release
         working-directory: apps/desktop/src-tauri
@@ -62,8 +66,6 @@ jobs:
   publish:
     needs: [build-frontend, build-sidecar]
     runs-on: windows-latest
-    env:
-      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -77,6 +79,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ env.CACHE_VERSION }}
           workspaces: |
             apps/desktop/src-tauri -> target
       - name: Download frontend dist
