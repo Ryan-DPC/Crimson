@@ -8,14 +8,13 @@ pub async fn download_and_install_update(app: AppHandle, _url: String) -> Result
         .ok_or("No update available")?;
 
     let mut downloaded = 0;
-    let total_size = update.content_length;
 
     update.download_and_install(
-        |chunk_len, _total_len| {
+        move |chunk_len, total_len| {
             downloaded += chunk_len;
             let _ = app.emit("update-progress", serde_json::json!({
                 "downloaded": downloaded,
-                "total": total_size
+                "total": total_len.unwrap_or(0)
             }));
         },
         || {
