@@ -1,6 +1,7 @@
+use std::net::SocketAddr;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
-use serde_json::json;
 use serde_json::json;
 use lcu_commands::storage;
 use lcu_commands::events::WsSender;
@@ -36,7 +37,7 @@ async fn handle_connection(stream: TcpStream, sender: WsSender) {
                                     if text.trim().is_empty() { continue; }
                                     // Parse Command and Dispatch
                                     if let Ok(command) = serde_json::from_str::<lcu_commands::sd_commands::StreamDeckCommand>(text) {
-                                        if let Ok(Some(response_json)) = command.execute(&handle, &state.0).await {
+                                        if let Ok(Some(response_json)) = command.execute_standalone(&sender.0).await {
                                             let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(response_json.to_string().into())).await;
                                         }
                                     } else {

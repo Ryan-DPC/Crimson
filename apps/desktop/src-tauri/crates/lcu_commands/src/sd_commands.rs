@@ -117,7 +117,7 @@ impl StreamDeckCommand {
                     // Let's assume for now it uses the Gemini path.
                     
                     let data = storage::load_data_from_path(storage::get_data_path_from_env());
-                    let key = data.gemini_api_key.unwrap_or_default();
+                    let _key = data.gemini_api_key.unwrap_or_default();
                     
                     // TODO: Pass proper pool if we want caching in the sidecar.
                     // For now, standalone will use a temporary pool or just Gemini.
@@ -125,7 +125,7 @@ impl StreamDeckCommand {
                 }
                 Ok(None)
             }
-            StreamDeckCommand::GetBuilds { champion_id, champion_name } => {
+            StreamDeckCommand::GetBuilds { champion_id: _, champion_name: _ } => {
                 Ok(None) // Simplified for standalone for now
             }
             StreamDeckCommand::ToggleGlobalAutomation => {

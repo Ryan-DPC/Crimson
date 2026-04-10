@@ -62,7 +62,7 @@ pub async fn start_lcu_ws(sender: WsSender) {
                                                 let _ = sender_clone.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
                                                 
                                                 if phase == "ChampSelect" {
-                                                    let app_data = lcu_commands::storage::load_data(&handle);
+                                                    let app_data = lcu_commands::storage::load_data_from_path(lcu_commands::storage::get_data_path_from_env());
                                                     if !app_data.invisible_automation {
                                                         // Sidecar requests the UI to show itself
                                                         let _ = sender_clone.0.send(json!({"type": "REQUEST_UI_SHOW"}).to_string());
