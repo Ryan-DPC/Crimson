@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use tauri::AppHandle;
-use crate::{storage, lcu, analyzer};
+use crate::{storage, lcu};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -49,7 +49,7 @@ pub enum StreamDeckCommand {
 impl StreamDeckCommand {
     pub async fn execute(
         self, 
-        handle: &AppHandle, 
+        _handle: &AppHandle, 
         tx: &broadcast::Sender<String>
     ) -> Result<Option<Value>, String> {
         self.execute_standalone(tx).await
@@ -110,7 +110,7 @@ impl StreamDeckCommand {
                 }
 
                 if !c_name.is_empty() {
-                    let r = role.unwrap_or_else(|| "mid".to_string());
+                    let _r = role.unwrap_or_else(|| "mid".to_string());
                     // For sidecar, we might need a DB pool to fetch builds if we want to bypass Gemini.
                     // But here we use analyzer::fetch_dynamic_runes which we refactored.
                     // We need a pool though. Currently StreamDeckCommand doesn't have one.

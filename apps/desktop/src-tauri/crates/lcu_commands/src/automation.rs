@@ -1,4 +1,8 @@
-pub async fn handle_champ_select(handle: &AppHandle, data: &Value) {
+use tauri::AppHandle;
+use serde_json::Value;
+use crate::{lcu, storage};
+
+pub async fn handle_champ_select(_handle: &AppHandle, data: &Value) {
     handle_champ_select_standalone(data).await
 }
 
