@@ -6,3 +6,5 @@ pub mod sd_commands;
 pub mod storage;
 pub mod events;
 pub mod updater_cmd;
+
+pub struct SidecarChild(pub std::sync::Arc<tokio::sync::Mutex<Option<std::process::Child>>>);

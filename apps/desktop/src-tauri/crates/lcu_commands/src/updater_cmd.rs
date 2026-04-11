@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 #[tauri::command]
@@ -30,7 +30,7 @@ pub async fn download_and_install_update(app: AppHandle, _url: String) -> Result
     let sidecar_state = app.state::<crate::SidecarChild>();
     let child_mutex = sidecar_state.0.clone();
     let mut lock = child_mutex.lock().await;
-    if let Some(mut child) = lock.take() {
+    if let Some(child) = lock.take() {
         let _ = child.kill();
     }
 

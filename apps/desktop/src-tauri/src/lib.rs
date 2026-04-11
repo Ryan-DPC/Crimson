@@ -167,7 +167,7 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|app_handle, event| {
+    .run(|_app_handle, event| {
         if let tauri::RunEvent::Exit = event {
             // Decoupled: Server stays running in background.
             // No kill() call here.
@@ -193,4 +193,3 @@ fn notify_server_resource_mode(low: bool) -> Result<(), String> {
     Ok(())
 }
 
-struct SidecarChild(std::sync::Arc<tokio::sync::Mutex<Option<std::process::Child>>>);
