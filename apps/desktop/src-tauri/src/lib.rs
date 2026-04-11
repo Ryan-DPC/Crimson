@@ -110,7 +110,7 @@ pub fn run() {
           let sidecar_name = "crimson_server-x86_64-pc-windows-msvc.exe";
           let mut debug_info = Vec::new();
 
-          let find_sidecar = || -> Option<std::path::PathBuf> {
+          let mut find_sidecar = || -> Option<std::path::PathBuf> {
               let res_dir = path_resolver.resource_dir().ok()?;
               debug_info.push(format!("Searching Resource Dir: {:?}", res_dir));
               
