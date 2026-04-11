@@ -112,6 +112,7 @@ pub fn run() {
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       let sidecar_handle = handle_c.clone();
       tauri::async_runtime::spawn(async move {
+          use std::os::windows::process::CommandExt;
           let path_resolver = sidecar_handle.path();
           let mut log_lines = Vec::new();
 
@@ -161,7 +162,6 @@ pub fn run() {
 
               if !native_success {
                   if let Some(p) = find_direct_path() {
-                      use std::os::windows::process::CommandExt;
                       const DETACHED_PROCESS: u32 = 0x00000008;
                       const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
                       const CREATE_NO_WINDOW: u32 = 0x08000000;
