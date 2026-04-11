@@ -103,12 +103,6 @@ pub fn run() {
       let pid = std::process::id();
       
       tauri::async_runtime::spawn(async move {
-          // Check if server is already running on port 40509
-          if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
-              println!("Crimson Server already running. Skipping sidecar spawn.");
-              return;
-          }
-
           let sidecar_result = sidecar_handle.shell().sidecar("bin/crimson_server");
           match sidecar_result {
               Ok(sidecar) => {

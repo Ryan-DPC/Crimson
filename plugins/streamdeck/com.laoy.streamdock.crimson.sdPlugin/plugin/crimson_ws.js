@@ -1,18 +1,19 @@
 class CrimsonAPI {
     constructor() {
-        this.url = 'ws://localhost:40509';
+        this.url = 'ws://127.0.0.1:40509';
         this.ws = null;
         this.onMessage = null;
         this.onStatusChange = null;
         this.reconnectInterval = 1000;
         this.maxReconnectInterval = 30000;
         this.isConnected = false;
+        this.attempts = 0;
         this.connect();
     }
 
     connect() {
-        console.log(`CrimsonAPI: Connecting to ${this.url}...`);
-        this.ws = new WebSocket(this.url);
+        this.attempts++;
+        console.log(`CrimsonAPI: Connecting to ${this.url} (Attempt ${this.attempts})...`);
 
         this.ws.onopen = () => {
             console.log("CrimsonAPI: Connected to Backend.");
