@@ -14,6 +14,7 @@ class CrimsonAPI {
     connect() {
         this.attempts++;
         console.log(`CrimsonAPI: Connecting to ${this.url} (Attempt ${this.attempts})...`);
+        this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
             console.log("CrimsonAPI: Connected to Backend.");

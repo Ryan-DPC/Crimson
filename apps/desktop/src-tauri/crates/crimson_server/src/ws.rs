@@ -18,6 +18,7 @@ pub async fn start_ws_server(sender: WsSender) {
 
 async fn handle_connection(stream: TcpStream, sender: WsSender) {
     if let Ok(mut ws_stream) = accept_async(stream).await {
+        println!("Client connected to WebSocket server");
         
         let data = storage::load_data_from_path(storage::get_data_path_from_env());
         let initial_state = json!({
