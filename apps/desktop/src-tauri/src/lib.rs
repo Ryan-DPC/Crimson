@@ -96,11 +96,18 @@ pub fn run() {
       let pid = std::process::id();
       
       tauri::async_runtime::spawn(async move {
-          let sidecar = sidecar_handle.shell().sidecar("crimson_server").unwrap()
-              .args(["--parent-pid", &pid.to_string()]);
-          if let Ok((_rx, child)) = sidecar.spawn() {
-              let mut lock = sidecar_child_clone.lock().await;
-              *lock = Some(child);
+          let sidecar_result = sidecar_handle.shell().sidecar("bin/crimson_server");
+          match sidecar_result {
+              Ok(sidecar) => {
+                  let sidecar = sidecar.args(["--parent-pid", &pid.to_string()]);
+                  if let Ok((_rx, child)) = sidecar.spawn() {
+                      let mut lock = sidecar_child_clone.lock().await;
+                      *lock = Some(child);
+                  }
+              }
+              Err(e) => {
+                  eprintln!("Failed to initialize sidecar: {}", e);
+              }
           }
       });
       
