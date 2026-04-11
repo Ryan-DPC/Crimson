@@ -17,6 +17,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
+    let instance = single_instance::SingleInstance::new("com.laoy.crimson.server");
+    if !instance.is_single() {
+        eprintln!("Another instance of Crimson Server is already running. Exiting.");
+        return;
+    }
+
     let args = Args::parse();
     println!("Starting Crimson Phantom Server...");
 
