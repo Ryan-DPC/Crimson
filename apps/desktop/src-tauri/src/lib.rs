@@ -105,26 +105,34 @@ pub fn run() {
               return;
           }
 
-          // 2. Resolve Path (Robust Discovery)
+          // 2. Resolve Path (Recursive Discovery)
           let path_resolver = sidecar_handle.path();
-          let base_name = "crimson_server-x86_64-pc-windows-msvc.exe";
-          
-          let potential_paths = vec![
-              path_resolver.resolve(format!("bin/{}", base_name), tauri::path::BaseDirectory::Resource),
-              path_resolver.resolve(base_name, tauri::path::BaseDirectory::Resource),
-          ];
+          let sidecar_name = "crimson_server-x86_64-pc-windows-msvc.exe";
+          let mut debug_info = Vec::new();
 
-          let mut final_path = None;
-          for p_res in potential_paths {
-              if let Ok(p) = p_res {
-                  if p.exists() {
-                      final_path = Some(p);
-                      break;
+          let find_sidecar = || -> Option<std::path::PathBuf> {
+              let res_dir = path_resolver.resource_dir().ok()?;
+              debug_info.push(format!("Searching Resource Dir: {:?}", res_dir));
+              
+              fn scan(dir: &std::path::Path, target: &str, info: &mut Vec<String>) -> Option<std::path::PathBuf> {
+                  if let Ok(entries) = std::fs::read_dir(dir) {
+                      for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            if let Some(found) = scan(&path, target, info) {
+                                return Some(found);
+                            }
+                        } else if path.file_name().and_then(|f| f.to_str()) == Some(target) {
+                            return Some(path);
+                        }
+                      }
                   }
+                  None
               }
-          }
+              scan(&res_dir, sidecar_name, &mut debug_info)
+          };
           
-          if let Some(p) = final_path {
+          if let Some(p) = find_sidecar() {
               use std::os::windows::process::CommandExt;
               const DETACHED_PROCESS: u32 = 0x00000008;
               const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
@@ -135,13 +143,16 @@ pub fn run() {
               cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
               let _ = cmd.spawn();
           } else {
-              // Log failure to file for debugging
+              // Log failure to corrected file for debugging
               if let Ok(app_data) = path_resolver.app_data_dir() {
                   let _ = std::fs::create_dir_all(&app_data);
                   let log_path = app_data.join("launch_debug.log");
                   if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
                       use std::io::Write;
-                      let _ = writeln!(file, "[{:?}] Sidecar not found. Attempted paths in Resource dir.", std::time::SystemTime::now());
+                      let _ = writeln!(file, "[{:?}] Sidecar not found.", std::time::SystemTime::now());
+                      for line in debug_info {
+                          let _ = writeln!(file, "  - {}", line);
+                      }
                   }
               }
           }
