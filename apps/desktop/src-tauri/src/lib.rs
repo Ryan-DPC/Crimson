@@ -1,5 +1,5 @@
 use tauri::Manager;
-use lcu_commands::{lcu, storage, db};
+use lcu_commands::{lcu, storage, db, SidecarChild};
 
 mod commands;
 
