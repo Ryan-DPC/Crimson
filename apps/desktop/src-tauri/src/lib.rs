@@ -102,18 +102,32 @@ pub fn run() {
       let sidecar_child_clone = sidecar_child.clone();
       let pid = std::process::id();
       
+      // Launch Sidecar as a truly independent standalone process (Windows Only logic)
+      let sidecar_handle = handle.clone();
       tauri::async_runtime::spawn(async move {
-          let sidecar_result = sidecar_handle.shell().sidecar("bin/crimson_server");
-          match sidecar_result {
-              Ok(sidecar) => {
-                  let sidecar = sidecar.args(["--parent-pid", &pid.to_string()]);
-                  if let Ok((_rx, child)) = sidecar.spawn() {
-                      let mut lock = sidecar_child_clone.lock().await;
-                      *lock = Some(child);
-                  }
-              }
-              Err(e) => {
-                  eprintln!("Failed to initialize sidecar: {}", e);
+          // 1. Port Check: Don't spawn if already running
+          if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
+              println!("Crimson Server already running. Skipping spawn.");
+              return;
+          }
+
+          // 2. Resolve Path
+          let path_resolver = sidecar_handle.path();
+          let sidecar_path = path_resolver.resolve("bin/crimson_server-x86_64-pc-windows-msvc.exe", tauri::path::BaseDirectory::Resource);
+          
+          if let Ok(p) = sidecar_path {
+              if p.exists() {
+                  use std::os::windows::process::CommandExt;
+                  const DETACHED_PROCESS: u32 = 0x00000008;
+                  const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+                  const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+                  println!("Spawning Standalone Crimson Server from: {:?}", p);
+                  let mut cmd = std::process::Command::new(p);
+                  cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
+                  let _ = cmd.spawn();
+              } else {
+                  eprintln!("Sidecar binary not found at {:?}", p);
               }
           }
       });
@@ -179,4 +193,4 @@ fn notify_server_resource_mode(low: bool) -> Result<(), String> {
     Ok(())
 }
 
-struct SidecarChild(std::sync::Arc<tokio::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>>);
+struct SidecarChild(std::sync::Arc<tokio::sync::Mutex<Option<std::process::Child>>>);
