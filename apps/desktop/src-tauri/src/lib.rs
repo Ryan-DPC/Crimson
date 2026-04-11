@@ -27,8 +27,21 @@ pub fn run() {
     ])
     .setup(|app| {
       let handle = app.handle().clone();
-      let data = storage::load_data(&handle);
+      let path_resolver = handle.path();
+      
+      // 1. Initialize Log IMMEDIATELY in the correct AppData folder
+      if let Ok(app_data) = path_resolver.app_data_dir() {
+          let _ = std::fs::create_dir_all(&app_data);
+          let log_path = app_data.join("launch_debug.log");
+          if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+              use std::io::Write;
+              let _ = writeln!(file, "\n--- Crimson Startup [{:?}] ---", std::time::SystemTime::now());
+              let _ = writeln!(file, "  Resource Dir: {:?}", path_resolver.resource_dir());
+              let _ = writeln!(file, "  AppData Dir:  {:?}", app_data);
+          }
+      }
 
+      let data = storage::load_data(&handle);
       // Restore window geometry
       if let Some(window) = app.get_webview_window("main") {
           if let (Some(x), Some(y)) = (data.window_x, data.window_y) {
@@ -88,40 +101,34 @@ pub fn run() {
       let (tx, _) = tokio::sync::broadcast::channel(100);
       app.manage(lcu_commands::events::WsSender(tx));
 
-      let handle = app.handle().clone();
+      let handle_c = handle.clone();
       
       // Force auto_accept to true on startup
-      let mut data = storage::load_data(&handle);
+      let mut data = storage::load_data(&handle_c);
       data.auto_accept = true;
-      storage::save_data(&handle, &data);
+      storage::save_data(&handle_c, &data);
 
-      // Launch Sidecar as a truly independent standalone process (Windows Only logic)
+      // Launch Sidecar Logic
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
-      let sidecar_handle = handle.clone();
+      let sidecar_handle = handle_c.clone();
       tauri::async_runtime::spawn(async move {
           // 1. Port Check: Don't spawn if already running
           if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
-              println!("Crimson Server already running. Skipping spawn.");
               return;
           }
 
-          // 2. Resolve Path (Recursive Discovery)
+          // 2. Discover Path
           let path_resolver = sidecar_handle.path();
           let sidecar_name = "crimson_server-x86_64-pc-windows-msvc.exe";
-          let mut debug_info = Vec::new();
-
-          let mut find_sidecar = || -> Option<std::path::PathBuf> {
+          
+          let find_sidecar = || -> Option<std::path::PathBuf> {
               let res_dir = path_resolver.resource_dir().ok()?;
-              debug_info.push(format!("Searching Resource Dir: {:?}", res_dir));
-              
-              fn scan(dir: &std::path::Path, target: &str, info: &mut Vec<String>) -> Option<std::path::PathBuf> {
+              fn scan(dir: &std::path::Path, target: &str) -> Option<std::path::PathBuf> {
                   if let Ok(entries) = std::fs::read_dir(dir) {
                       for entry in entries.flatten() {
                         let path = entry.path();
                         if path.is_dir() {
-                            if let Some(found) = scan(&path, target, info) {
-                                return Some(found);
-                            }
+                            if let Some(found) = scan(&path, target) { return Some(found); }
                         } else if path.file_name().and_then(|f| f.to_str()) == Some(target) {
                             return Some(path);
                         }
@@ -129,31 +136,24 @@ pub fn run() {
                   }
                   None
               }
-              scan(&res_dir, sidecar_name, &mut debug_info)
+              scan(&res_dir, sidecar_name)
           };
-          
+
+          // Strategy A: Standalone Detached Spawn
           if let Some(p) = find_sidecar() {
               use std::os::windows::process::CommandExt;
               const DETACHED_PROCESS: u32 = 0x00000008;
               const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
               const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-              println!("Spawning Standalone Crimson Server from: {:?}", p);
               let mut cmd = std::process::Command::new(p);
               cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
               let _ = cmd.spawn();
           } else {
-              // Log failure to corrected file for debugging
-              if let Ok(app_data) = path_resolver.app_data_dir() {
-                  let _ = std::fs::create_dir_all(&app_data);
-                  let log_path = app_data.join("launch_debug.log");
-                  if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-                      use std::io::Write;
-                      let _ = writeln!(file, "[{:?}] Sidecar not found.", std::time::SystemTime::now());
-                      for line in debug_info {
-                          let _ = writeln!(file, "  - {}", line);
-                      }
-                  }
+              // Strategy B: Tauri Native Fallback (for Dev or if Strategy A fails)
+              use tauri_plugin_shell::ShellExt;
+              if let Ok(sidecar) = sidecar_handle.shell().sidecar("bin/crimson_server") {
+                  let _ = sidecar.spawn();
               }
           }
       });
