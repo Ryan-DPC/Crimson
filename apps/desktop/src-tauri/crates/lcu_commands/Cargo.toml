@@ -9,7 +9,7 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.3", features = [] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "time"] }
 chrono = "0.4.44"
 regex = "1.12.3"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
