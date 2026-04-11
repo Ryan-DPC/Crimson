@@ -43,10 +43,15 @@ pub fn run() {
       let show_i = tauri::menu::MenuItem::with_id(app, "show", "Panneau de Controle", true, None::<&str>)?;
       let menu = tauri::menu::Menu::with_items(app, &[&show_i, &quit_i])?;
 
-      let _tray = tauri::tray::TrayIconBuilder::new()
+      let mut tray_builder = tauri::tray::TrayIconBuilder::new()
         .menu(&menu)
-        .show_menu_on_left_click(true)
-        .icon(app.default_window_icon().unwrap().clone())
+        .show_menu_on_left_click(true);
+
+      if let Some(icon) = app.default_window_icon() {
+          tray_builder = tray_builder.icon(icon.clone());
+      }
+
+      let _tray = tray_builder
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => {
                 app.exit(0);
@@ -75,7 +80,9 @@ pub fn run() {
         .build(app)?;
 
       let pool = db::create_pool(app.handle());
-      db::init_db(&pool).expect("failed to initialize database");
+      if let Err(e) = db::init_db(&pool) {
+          eprintln!("Failed to initialize database: {}", e);
+      }
       app.manage(pool);
 
       let (tx, _) = tokio::sync::broadcast::channel(100);
