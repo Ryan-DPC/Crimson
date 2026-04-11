@@ -13,12 +13,12 @@ struct Args {
     data_path: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let instance = single_instance::SingleInstance::new("com.laoy.crimson.server").unwrap();
     if !instance.is_single() {
         eprintln!("Another instance of Crimson Server is already running. Exiting.");
-        return;
+        return Ok(());
     }
 
     let args = Args::parse();

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CRIMSON",
-  "version": "1.6.5",
+  "version": "1.7.0",
   "identifier": "com.laoy.crimson",
   "build": {
     "frontendDist": "../dist",
@@ -38,7 +38,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/crimson_server"
+      "bin/crimson-server"
     ]
   },
   "plugins": {

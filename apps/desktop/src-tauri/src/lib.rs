@@ -118,7 +118,7 @@ pub fn run() {
 
           // 1. CLEANUP: Clear any hung processes
           let _ = std::process::Command::new("taskkill")
-              .args(&["/F", "/IM", "crimson_server.exe", "/T"])
+              .args(&["/F", "/IM", "crimson-server.exe", "/T"])
               .creation_flags(0x08000000) // CREATE_NO_WINDOW
               .status();
           log_lines.push("Cleanup: taskkill finished.".to_string());
@@ -130,8 +130,8 @@ pub fn run() {
               let mut spawn_success = false;
 
               // 3. Strategy A: Manual Detached (Persistence Priority)
-              let sidecar_base = "crimson_server.exe";
-              let sidecar_arch = "crimson_server-x86_64-pc-windows-msvc.exe";
+              let sidecar_base = "crimson-server.exe";
+              let sidecar_arch = "crimson-server-x86_64-pc-windows-msvc.exe";
               let find_direct_path = || -> Option<std::path::PathBuf> {
                   let roots = vec![
                       path_resolver.resource_dir().ok(),
@@ -167,7 +167,7 @@ pub fn run() {
               // 4. Strategy B: Native Fallback
               if !spawn_success {
                   use tauri_plugin_shell::ShellExt;
-                  for variant in &["bin/crimson_server", "crimson_server"] {
+                  for variant in &["bin/crimson-server", "crimson-server"] {
                       if let Ok(sidecar) = sidecar_handle.shell().sidecar(*variant) {
                           if let Ok(_) = sidecar.spawn() {
                               log_lines.push(format!("SUCCESS: Native Sidecar [{}] spawned.", variant));
