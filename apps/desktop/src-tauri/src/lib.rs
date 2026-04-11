@@ -117,43 +117,75 @@ pub fn run() {
               return;
           }
 
-          // 2. Discover Path
+          // 2. Resolve Path (Aggressive Discovery)
           let path_resolver = sidecar_handle.path();
-          let sidecar_name = "crimson_server-x86_64-pc-windows-msvc.exe";
-          
+          let sidecar_base = "crimson_server.exe";
+          let sidecar_arch = "crimson_server-x86_64-pc-windows-msvc.exe";
+          let mut debug_info = Vec::new();
+
           let find_sidecar = || -> Option<std::path::PathBuf> {
-              let res_dir = path_resolver.resource_dir().ok()?;
-              fn scan(dir: &std::path::Path, target: &str) -> Option<std::path::PathBuf> {
+              let mut scan_dirs = Vec::new();
+              if let Ok(res) = path_resolver.resource_dir() { scan_dirs.push(res); }
+              if let Ok(exe) = path_resolver.executable_dir() { scan_dirs.push(exe); }
+              
+              fn scan(dir: &std::path::Path, targets: &[&str], info: &mut Vec<String>) -> Option<std::path::PathBuf> {
+                  info.push(format!("Scanning Dir: {:?}", dir));
                   if let Ok(entries) = std::fs::read_dir(dir) {
                       for entry in entries.flatten() {
                         let path = entry.path();
                         if path.is_dir() {
-                            if let Some(found) = scan(&path, target) { return Some(found); }
-                        } else if path.file_name().and_then(|f| f.to_str()) == Some(target) {
-                            return Some(path);
+                            if let Some(found) = scan(&path, targets, info) { return Some(found); }
+                        } else {
+                            if let Some(f_name) = path.file_name().and_then(|f| f.to_str()) {
+                                if targets.contains(&f_name) {
+                                    return Some(path);
+                                }
+                            }
                         }
                       }
                   }
                   None
               }
-              scan(&res_dir, sidecar_name)
+              
+              let targets = [sidecar_base, sidecar_arch];
+              for base in scan_dirs {
+                  if let Some(p) = scan(&base, &targets, &mut debug_info) {
+                      return Some(p);
+                  }
+              }
+              None
           };
-
-          // Strategy A: Standalone Detached Spawn
+          
           if let Some(p) = find_sidecar() {
               use std::os::windows::process::CommandExt;
               const DETACHED_PROCESS: u32 = 0x00000008;
               const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
               const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-              let mut cmd = std::process::Command::new(p);
+              let mut cmd = std::process::Command::new(p.clone());
               cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
               let _ = cmd.spawn();
+              
+              // Log success
+              if let Ok(app_data) = path_resolver.app_data_dir() {
+                  let log_path = app_data.join("launch_debug.log");
+                  if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                      use std::io::Write;
+                      let _ = writeln!(file, "[{:?}] SUCCESS: Started sidecar from {:?}", std::time::SystemTime::now(), p);
+                  }
+              }
           } else {
-              // Strategy B: Tauri Native Fallback (for Dev or if Strategy A fails)
-              use tauri_plugin_shell::ShellExt;
-              if let Ok(sidecar) = sidecar_handle.shell().sidecar("bin/crimson_server") {
-                  let _ = sidecar.spawn();
+              // Log failure to corrected file for debugging
+              if let Ok(app_data) = path_resolver.app_data_dir() {
+                  let _ = std::fs::create_dir_all(&app_data);
+                  let log_path = app_data.join("launch_debug.log");
+                  if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                      use std::io::Write;
+                      let _ = writeln!(file, "[{:?}] Sidecar not found after aggressive scan.", std::time::SystemTime::now());
+                      for line in debug_info {
+                          let _ = writeln!(file, "  - {}", line);
+                      }
+                  }
               }
           }
       });
