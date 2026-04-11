@@ -2,8 +2,6 @@ use tokio::sync::broadcast;
 use lcu_commands::events::WsSender;
 use crimson_server::{ws, lcu_ws, service};
 use clap::Parser;
-use sysinfo::{System, Pid};
-use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -17,7 +15,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    let instance = single_instance::SingleInstance::new("com.laoy.crimson.server");
+    let instance = single_instance::SingleInstance::new("com.laoy.crimson.server").unwrap();
     if !instance.is_single() {
         eprintln!("Another instance of Crimson Server is already running. Exiting.");
         return;
