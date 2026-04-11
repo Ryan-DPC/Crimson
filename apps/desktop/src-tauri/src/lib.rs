@@ -108,64 +108,74 @@ pub fn run() {
       data.auto_accept = true;
       storage::save_data(&handle_c, &data);
 
-      // Launch Sidecar Logic (v1.6.2 Dual Launch)
+      // Launch Sidecar Logic (v1.6.3 Self-Healing)
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       let sidecar_handle = handle_c.clone();
       tauri::async_runtime::spawn(async move {
-          // 1. Port Check: Don't spawn if already running
-          if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
-              return;
-          }
-
           let path_resolver = sidecar_handle.path();
           let mut log_lines = Vec::new();
 
-          // Strategy A: Tauri Official Sidecar API (Primary)
-          use tauri_plugin_shell::ShellExt;
-          match sidecar_handle.shell().sidecar("bin/crimson_server") {
-              Ok(sidecar) => {
-                  match sidecar.spawn() {
-                      Ok(_) => log_lines.push("SUCCESS: Tauri Native Sidecar spawned.".to_string()),
-                      Err(e) => log_lines.push(format!("ERROR: Tauri Native spawn failed: {}", e)),
-                  }
-              },
-              Err(e) => log_lines.push(format!("ERROR: Tauri sidecar resolve failed: {}", e)),
-          }
+          // 1. CLEANUP: Clear any hung/locked server processes (fixes "Access Denied")
+          let _ = std::process::Command::new("taskkill")
+              .args(&["/F", "/IM", "crimson_server.exe", "/T"])
+              .creation_flags(0x08000000) // CREATE_NO_WINDOW
+              .status();
+          log_lines.push("Cleanup: taskkill loop finished.".to_string());
 
-          // Strategy B: Manual Standalone Detached (for Persistence)
-          let sidecar_base = "crimson_server.exe";
-          let sidecar_arch = "crimson_server-x86_64-pc-windows-msvc.exe";
-          
-          let find_direct_path = || -> Option<std::path::PathBuf> {
-              let roots = vec![
-                  path_resolver.resource_dir().ok(),
-                  path_resolver.executable_dir().ok(),
-              ];
-              for root in roots.into_iter().flatten() {
-                  for name in &[sidecar_base, sidecar_arch] {
-                      let p = root.join(name);
-                      if p.exists() { return Some(p); }
-                      let p_bin = root.join("bin").join(name);
-                      if p_bin.exists() { return Some(p_bin); }
-                  }
-              }
-              None
-          };
-
-          if let Some(p) = find_direct_path() {
-              use std::os::windows::process::CommandExt;
-              const DETACHED_PROCESS: u32 = 0x00000008;
-              const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-              const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-              let mut cmd = std::process::Command::new(&p);
-              cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
-              match cmd.spawn() {
-                  Ok(_) => log_lines.push(format!("SUCCESS: Manual Detached spawned from {:?}", p)),
-                  Err(e) => log_lines.push(format!("ERROR: Manual Detached spawn failed: {}", e)),
-              }
+          // 2. Port Check
+          if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
+              log_lines.push("Port 40509 busy. Skipping spawn.".to_string());
           } else {
-              log_lines.push("Sidecar binary not found for manual detached spawn.".to_string());
+              // 3. Strategy A: Heuristic Native Sidecar
+              use tauri_plugin_shell::ShellExt;
+              let mut native_success = false;
+              for variant in &["bin/crimson_server", "crimson_server"] {
+                  if let Ok(sidecar) = sidecar_handle.shell().sidecar(*variant) {
+                      if let Ok(_) = sidecar.spawn() {
+                          log_lines.push(format!("SUCCESS: Native Sidecar [{}] spawned.", variant));
+                          native_success = true;
+                          break;
+                      }
+                  }
+              }
+
+              // 4. Strategy B: Validated Manual Standalone (for Persistence)
+              let sidecar_base = "crimson_server.exe";
+              let sidecar_arch = "crimson_server-x86_64-pc-windows-msvc.exe";
+              
+              let find_direct_path = || -> Option<std::path::PathBuf> {
+                  let roots = vec![
+                      path_resolver.resource_dir().ok(),
+                      path_resolver.executable_dir().ok(),
+                  ];
+                  for root in roots.into_iter().flatten() {
+                      for name in &[sidecar_base, sidecar_arch] {
+                          let p = root.join(name);
+                          if p.is_file() { return Some(p); }
+                          let p_bin = root.join("bin").join(name);
+                          if p_bin.is_file() { return Some(p_bin); }
+                      }
+                  }
+                  None
+              };
+
+              if !native_success {
+                  if let Some(p) = find_direct_path() {
+                      use std::os::windows::process::CommandExt;
+                      const DETACHED_PROCESS: u32 = 0x00000008;
+                      const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+                      const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+                      let mut cmd = std::process::Command::new(&p);
+                      cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
+                      match cmd.spawn() {
+                          Ok(_) => log_lines.push(format!("SUCCESS: Manual Detached spawned from {:?}", p)),
+                          Err(e) => log_lines.push(format!("ERROR: Manual Detached spawn failed: {}", e)),
+                      }
+                  } else {
+                      log_lines.push("ERROR: Sidecar not found after aggressive scan.".to_string());
+                  }
+              }
           }
 
           // Flush logs to AppData
