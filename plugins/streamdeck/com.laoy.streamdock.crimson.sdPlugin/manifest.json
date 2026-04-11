@@ -3,6 +3,7 @@
     {
       "Icon": "static/icon/accept",
       "Name": "Auto-Accept (Toggle)",
+      "Controllers": ["Keypad"],
       "States": [
         {
           "Image": "static/icon/accept",
@@ -18,37 +19,101 @@
     {
       "Icon": "static/icon/dodge",
       "Name": "Dodge Game",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "static/icon/dodge"
+        }
+      ],
       "UUID": "com.laoy.streamdock.crimson.dodge"
     },
     {
       "Icon": "static/icon/stats",
       "Name": "Stats / Champion",
+      "Controllers": ["Keypad", "Information"],
+      "States": [
+        {
+          "Image": "static/icon/stats"
+        }
+      ],
       "UUID": "com.laoy.streamdock.crimson.display"
     },
     {
       "Icon": "static/icon/autoban",
       "Name": "Auto-Ban (Toggle)",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "static/icon/autoban",
+          "Title": "OFF"
+        },
+        {
+          "Image": "static/icon/autoban",
+          "Title": "ON"
+        }
+      ],
       "UUID": "com.laoy.streamdock.crimson.autoban"
     },
     {
       "Icon": "static/icon/autopick",
       "Name": "Auto-Pick (Toggle)",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "static/icon/autopick",
+          "Title": "OFF"
+        },
+        {
+          "Image": "static/icon/autopick",
+          "Title": "ON"
+        }
+      ],
       "UUID": "com.laoy.streamdock.crimson.autopick"
     },
     {
       "Icon": "static/icon/inject",
       "Name": "Inject Rune Build",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "static/icon/inject"
+        }
+      ],
       "UUID": "com.laoy.streamdock.crimson.inject"
+    },
+    {
+      "Icon": "static/icon/heartbeat",
+      "Name": "Crimson Server Link (Info)",
+      "Controllers": ["Information"],
+      "States": [
+        {
+          "Image": "static/icon/heartbeat",
+          "Title": "OFFLINE"
+        },
+        {
+          "Image": "static/icon/heartbeat",
+          "Title": "CONNECTED"
+        }
+      ],
+      "UUID": "com.laoy.streamdock.crimson.infoboard"
     }
   ],
   "Author": "Laoy",
   "Description": "CRIMSON League of Legends Controller",
   "Icon": "static/icon/accept",
   "Name": "CRIMSON",
-  "Version": "2.0",
-  "SDKVersion": 2,
+  "Category": "CRIMSON",
+  "CategoryIcon": "static/icon/accept",
+  "Version": "2.1",
+  "SDKVersion": 1,
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
   "Software": {
-    "MinimumVersion": "2.0"
+    "MinimumVersion": "3.10.188.226"
   },
   "CodePath": "plugin/index.html"
 }

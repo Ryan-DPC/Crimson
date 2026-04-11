@@ -20,6 +20,7 @@ async fn main() {
     let args = Args::parse();
     println!("Starting Crimson Phantom Server...");
 
+    /* 
     if let Some(pid) = args.parent_pid {
         println!("Monitoring parent PID: {}", pid);
         tokio::spawn(async move {
@@ -35,6 +36,7 @@ async fn main() {
             }
         });
     }
+    */
 
     // Setup broadcast channel for internal communications
     let (tx, _) = broadcast::channel(100);

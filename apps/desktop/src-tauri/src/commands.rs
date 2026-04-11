@@ -3,6 +3,15 @@ use lcu_commands::storage;
 
 #[tauri::command]
 pub fn crimson_quit_app(app: tauri::AppHandle) {
+  // Kill sidecar before exiting
+  let sidecar_state = app.state::<crate::SidecarChild>();
+  let child_mutex = sidecar_state.0.clone();
+  tauri::async_runtime::block_on(async move {
+      let mut lock = child_mutex.lock().await;
+      if let Some(mut child) = lock.take() {
+          let _ = child.kill();
+      }
+  });
   app.exit(0);
 }
 

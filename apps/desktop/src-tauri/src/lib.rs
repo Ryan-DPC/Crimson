@@ -54,7 +54,7 @@ pub fn run() {
       let _tray = tray_builder
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => {
-                app.exit(0);
+                crate::commands::crimson_quit_app(app.clone());
             }
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -95,7 +95,7 @@ pub fn run() {
       data.auto_accept = true;
       storage::save_data(&handle, &data);
 
-      // Launch Sidecar
+      // Launch Sidecar (only if not already running)
       use tauri_plugin_shell::ShellExt;
       let sidecar_handle = handle.clone();
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
@@ -103,6 +103,12 @@ pub fn run() {
       let pid = std::process::id();
       
       tauri::async_runtime::spawn(async move {
+          // Check if server is already running on port 40509
+          if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
+              println!("Crimson Server already running. Skipping sidecar spawn.");
+              return;
+          }
+
           let sidecar_result = sidecar_handle.shell().sidecar("bin/crimson_server");
           match sidecar_result {
               Ok(sidecar) => {
@@ -155,14 +161,8 @@ pub fn run() {
     .expect("error while building tauri application")
     .run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            let sidecar_state = app_handle.state::<SidecarChild>();
-            let child_mutex = sidecar_state.0.clone();
-            tauri::async_runtime::block_on(async move {
-                let mut lock = child_mutex.lock().await;
-                if let Some(mut child) = lock.take() {
-                    let _ = child.kill();
-                }
-            });
+            // Decoupled: Server stays running in background.
+            // No kill() call here.
         }
     });
 }

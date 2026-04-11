@@ -6,23 +6,30 @@ const actionContexts = {
     "com.laoy.streamdock.crimson.autoban": [],
     "com.laoy.streamdock.crimson.autopick": [],
     "com.laoy.streamdock.crimson.inject": [],
-    "com.laoy.streamdock.crimson.global": []
+    "com.laoy.streamdock.crimson.infoboard": []
 };
 
 let gameState = {
     phase: "None",
-    rank: { tier: "", division: "", lp: 0 },
+    rank: { tier: "UNRANKED", division: "", lp: 0 },
     champion: 0,
-    championName: ""
+    championName: "",
+    autoAccept: false,
+    autoBan: null,
+    autoPick: null,
+    serverConnected: false
 };
 
 // ==========================================
 // 1. BACKEND LISTENER (Logic Layer)
 // ==========================================
 api.onMessage = (data) => {
+    console.log("Crimson Message Received:", data.type, data);
     switch (data.type) {
         case 'AUTO_ACCEPT_STATE':
+            gameState.autoAccept = data.enabled;
             updateContexts("com.laoy.streamdock.crimson.autoaccept", data.enabled ? 1 : 0);
+            refreshAllDisplays(); // Dynamic text update
             break;
         case 'GAME_PHASE':
             gameState.phase = data.phase;
@@ -38,15 +45,32 @@ api.onMessage = (data) => {
             refreshAllDisplays();
             break;
         case 'AUTO_BAN_STATE':
+            gameState.autoBan = data.championId;
             updateContexts("com.laoy.streamdock.crimson.autoban", data.championId ? 1 : 0);
-            updateContexts("com.laoy.streamdock.crimson.global", data.championId ? 1 : 0);
+            refreshAllDisplays();
             break;
         case 'AUTO_PICK_STATE':
+            gameState.autoPick = data.championId;
             updateContexts("com.laoy.streamdock.crimson.autopick", data.championId ? 1 : 0);
-            updateContexts("com.laoy.streamdock.crimson.global", data.championId ? 1 : 0);
+            refreshAllDisplays();
             break;
     }
 };
+
+api.onStatusChange = (isConnected) => {
+    gameState.serverConnected = isConnected;
+    updateContexts("com.laoy.streamdock.crimson.infoboard", isConnected ? 1 : 0);
+    refreshAllDisplays();
+};
+
+// Heartbeat Polling (Every 3 minutes as requested)
+setInterval(() => {
+    // If we want to force a visual pulse or a re-check
+    if (gameState.serverConnected) {
+        console.log("Heartbeat: Server is healthy.");
+        refreshAllDisplays();
+    }
+}, 3 * 60 * 1000);
 
 
 // ==========================================
@@ -64,30 +88,36 @@ function refreshAllDisplays() {
 }
 
 function updateDisplayLogic(context, action, controller = "Keypad") {
-    if (action === "com.laoy.streamdock.crimson.display") {
-        let title = "";
-        let value = "";
-        let image = "static/icon/stats.png";
-
-        if (gameState.phase === "ChampSelect" && gameState.champion > 0) {
-            title = gameState.championName || "PICK";
-            value = "ID: " + gameState.champion;
-        } else {
-            title = gameState.rank.tier !== "UNRANKED" ? gameState.rank.tier : "RANK";
-            value = gameState.rank.tier !== "UNRANKED" ? `${gameState.rank.division} ${gameState.rank.lp} LP` : "UNRANKED";
-        }
-        
-        if (controller === "Information") {
-            ui.setPayload(context, title, value, image);
-        } else {
-            ui.setTitle(context, title + "\n" + value);
-        }
+    let title = "";
+    
+    switch (action) {
+        case "com.laoy.streamdock.crimson.autoaccept":
+            title = gameState.autoAccept ? "ACTIVE" : "OFF";
+            break;
+        case "com.laoy.streamdock.crimson.display":
+            if (gameState.phase === "ChampSelect") {
+                title = gameState.championName || "DRAFT";
+            } else {
+                title = gameState.rank.tier !== "UNRANKED" ? `${gameState.rank.tier}\n${gameState.rank.lp}LP` : "RANK";
+            }
+            break;
+        case "com.laoy.streamdock.crimson.dodge":
+            if (gameState.phase === "ChampSelect" || gameState.phase === "Lobby") {
+                title = "DODGE";
+            }
+            break;
+        case "com.laoy.streamdock.crimson.autoban":
+            title = gameState.autoBan ? "BANNING" : "AUTO";
+            break;
+        case "com.laoy.streamdock.crimson.autopick":
+            title = gameState.autoPick ? "PICKING" : "AUTO";
+            break;
+        case "com.laoy.streamdock.crimson.infoboard":
+            title = gameState.serverConnected ? "LINKED" : "OFFLINE";
+            break;
     }
     
-    if (action === "com.laoy.streamdock.crimson.dodge") {
-        const visible = gameState.phase === "ChampSelect" || gameState.phase === "Lobby";
-        ui.setTitle(context, visible ? "DODGE" : "");
-    }
+    ui.setTitle(context, title);
 }
 
 
@@ -96,7 +126,7 @@ function updateDisplayLogic(context, action, controller = "Keypad") {
 // ==========================================
 window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegisterEvent, inInfo) {
     const streamDeckSocket = new WebSocket("ws://127.0.0.1:" + inPort);
-    ui.setSocket(streamDeckSocket); // Bind socket to UI layer
+    ui.setSocket(streamDeckSocket);
 
     streamDeckSocket.onopen = function () {
         streamDeckSocket.send(JSON.stringify({ "event": inRegisterEvent, "uuid": inPluginUUID }));
@@ -113,6 +143,14 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
             if (actionContexts[action] && !actionContexts[action].includes(context)) {
                 actionContexts[action].push(context);
             }
+            
+            // Set initial state for toggles
+            if (action === "com.laoy.streamdock.crimson.autoaccept") {
+                ui.setState(context, gameState.autoAccept ? 1 : 0);
+            } else if (action === "com.laoy.streamdock.crimson.infoboard") {
+                ui.setState(context, gameState.serverConnected ? 1 : 0);
+            }
+            
             updateDisplayLogic(context, action, controller);
         }
 
@@ -141,13 +179,10 @@ function handleActionClick(action) {
             api.send({ type: 'DODGE_GAME' });
             break;
         case "com.laoy.streamdock.crimson.autoban":
-            api.send({ type: 'TOGGLE_AUTO_BAN', championId: 0 }); // Global behavior handled by Rust dispatcher
+            api.send({ type: 'TOGGLE_AUTO_BAN', championId: 0 });
             break;
         case "com.laoy.streamdock.crimson.autopick":
-            api.send({ type: 'TOGGLE_AUTO_PICK', championId: 0 }); // Global behavior handled by Rust dispatcher
-            break;
-        case "com.laoy.streamdock.crimson.global":
-            api.send({ type: 'TOGGLE_GLOBAL_AUTOMATION' });
+            api.send({ type: 'TOGGLE_AUTO_PICK', championId: 0 });
             break;
         case "com.laoy.streamdock.crimson.inject":
             api.send({ 
@@ -155,6 +190,10 @@ function handleActionClick(action) {
                 championId: gameState.champion,
                 championName: gameState.championName
             });
+            break;
+        case "com.laoy.streamdock.crimson.infoboard":
+            // Optional: clicking Info Board could attempt a manual reconnect
+            if (!gameState.serverConnected) api.connect();
             break;
     }
 }
