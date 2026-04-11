@@ -97,12 +97,8 @@ pub fn run() {
 
       // Launch Sidecar (only if not already running)
       use tauri_plugin_shell::ShellExt;
-      let sidecar_handle = handle.clone();
-      let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
-      let sidecar_child_clone = sidecar_child.clone();
-      let pid = std::process::id();
-      
       // Launch Sidecar as a truly independent standalone process (Windows Only logic)
+      let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       let sidecar_handle = handle.clone();
       tauri::async_runtime::spawn(async move {
           // 1. Port Check: Don't spawn if already running

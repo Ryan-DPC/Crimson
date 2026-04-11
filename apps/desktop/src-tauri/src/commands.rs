@@ -8,7 +8,7 @@ pub fn crimson_quit_app(app: tauri::AppHandle) {
   let child_mutex = sidecar_state.0.clone();
   tauri::async_runtime::spawn(async move {
       let mut lock = child_mutex.lock().await;
-      if let Some(child) = lock.take() {
+      if let Some(mut child) = lock.take() {
           let _ = child.kill();
       }
   });
