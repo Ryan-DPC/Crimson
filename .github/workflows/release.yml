@@ -65,13 +65,13 @@ jobs:
           path: apps/desktop/dist
 
       - name: Build Sidecar (In-place)
-        run: cargo build -p crimson_server --release
+        run: cargo build -p crimson-server --release
         working-directory: apps/desktop/src-tauri
 
       - name: Prepare Sidecar
         run: |
           mkdir bin
-          cp target/release/crimson_server.exe bin/crimson_server-x86_64-pc-windows-msvc.exe
+          cp target/release/crimson-server.exe bin/crimson-server-x86_64-pc-windows-msvc.exe
         working-directory: apps/desktop/src-tauri
 
       - name: Install Tauri CLI
