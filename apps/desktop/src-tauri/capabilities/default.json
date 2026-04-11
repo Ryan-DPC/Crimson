@@ -20,6 +20,14 @@
     "autostart:allow-disable",
     "notification:default",
     "shell:default",
-    "shell:allow-sidecar"
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "bin/crimson_server",
+          "sidecar": true
+        }
+      ]
+    }
   ]
 }
