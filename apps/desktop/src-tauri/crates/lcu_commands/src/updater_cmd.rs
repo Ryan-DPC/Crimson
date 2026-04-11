@@ -10,7 +10,7 @@ pub async fn download_and_install_update(app: AppHandle, _url: String) -> Result
     let mut downloaded = 0;
 
     // Download the update
-    update.download(
+    let bytes = update.download(
         move |chunk_len, total_len| {
             downloaded += chunk_len;
             let _ = app.emit("update-progress", serde_json::json!({
@@ -25,7 +25,7 @@ pub async fn download_and_install_update(app: AppHandle, _url: String) -> Result
 
     // Just before installing, we should ensure we are ready to quit.
     // In Tauri 2.0, install() will launch the installer and then the app should quit.
-    update.install().map_err(|e| e.to_string())?;
+    update.install(bytes).map_err(|e| e.to_string())?;
 
     Ok(())
 }
