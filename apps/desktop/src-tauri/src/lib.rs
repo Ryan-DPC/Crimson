@@ -95,8 +95,6 @@ pub fn run() {
       data.auto_accept = true;
       storage::save_data(&handle, &data);
 
-      // Launch Sidecar (only if not already running)
-      use tauri_plugin_shell::ShellExt;
       // Launch Sidecar as a truly independent standalone process (Windows Only logic)
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       let sidecar_handle = handle.clone();
@@ -107,23 +105,44 @@ pub fn run() {
               return;
           }
 
-          // 2. Resolve Path
+          // 2. Resolve Path (Robust Discovery)
           let path_resolver = sidecar_handle.path();
-          let sidecar_path = path_resolver.resolve("bin/crimson_server-x86_64-pc-windows-msvc.exe", tauri::path::BaseDirectory::Resource);
+          let base_name = "crimson_server-x86_64-pc-windows-msvc.exe";
           
-          if let Ok(p) = sidecar_path {
-              if p.exists() {
-                  use std::os::windows::process::CommandExt;
-                  const DETACHED_PROCESS: u32 = 0x00000008;
-                  const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-                  const CREATE_NO_WINDOW: u32 = 0x08000000;
+          let potential_paths = vec![
+              path_resolver.resolve(format!("bin/{}", base_name), tauri::path::BaseDirectory::Resource),
+              path_resolver.resolve(base_name, tauri::path::BaseDirectory::Resource),
+          ];
 
-                  println!("Spawning Standalone Crimson Server from: {:?}", p);
-                  let mut cmd = std::process::Command::new(p);
-                  cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
-                  let _ = cmd.spawn();
-              } else {
-                  eprintln!("Sidecar binary not found at {:?}", p);
+          let mut final_path = None;
+          for p_res in potential_paths {
+              if let Ok(p) = p_res {
+                  if p.exists() {
+                      final_path = Some(p);
+                      break;
+                  }
+              }
+          }
+          
+          if let Some(p) = final_path {
+              use std::os::windows::process::CommandExt;
+              const DETACHED_PROCESS: u32 = 0x00000008;
+              const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+              const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+              println!("Spawning Standalone Crimson Server from: {:?}", p);
+              let mut cmd = std::process::Command::new(p);
+              cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
+              let _ = cmd.spawn();
+          } else {
+              // Log failure to file for debugging
+              if let Ok(app_data) = path_resolver.app_data_dir() {
+                  let _ = std::fs::create_dir_all(&app_data);
+                  let log_path = app_data.join("launch_debug.log");
+                  if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                      use std::io::Write;
+                      let _ = writeln!(file, "[{:?}] Sidecar not found. Attempted paths in Resource dir.", std::time::SystemTime::now());
+                  }
               }
           }
       });
