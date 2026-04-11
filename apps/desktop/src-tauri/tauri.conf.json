@@ -43,15 +43,7 @@
   },
   "plugins": {
     "shell": {
-      "sidecar": [
-        {
-          "name": "bin/crimson_server",
-          "args": [
-            "--data-path",
-             "$APPDATA/com.laoy.crimson/data.json"
-          ]
-        }
-      ]
+      "open": true
     },
     "updater": {
       "pubkey": "untrusted comment: minisign public key: 791F32C7A387217D\nRWR9IYeixzIfeUqY24uMGtUHP52gUx93yl0DgcsAUV382aMzXJy+j5DY",
@@ -59,7 +51,7 @@
         "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "silent"
+        "installMode": "quiet"
       }
     }
   }
