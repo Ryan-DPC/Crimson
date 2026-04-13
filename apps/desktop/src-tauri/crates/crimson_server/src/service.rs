@@ -1,8 +1,8 @@
-use lcu_commands::{lcu, storage};
+use crate::{lcu, storage};
 use std::time::Duration;
 use tokio::time::interval;
 use serde_json::json;
-use lcu_commands::events::WsSender;
+use crate::events::WsSender;
 
 pub fn start_auto_accept_service(sender: WsSender) {
     tokio::spawn(async move {
@@ -17,23 +17,23 @@ pub fn start_auto_accept_service(sender: WsSender) {
             
             let data = storage::load_data_from_path(storage::get_data_path_from_env());
             if data.auto_accept {
-                let _ = check_and_accept(&sender).await;
+                let _ = check_and_accept(&sender);
             }
             
             // Only broadcast state if UI is active
             if !crate::state::is_low_resource_mode() {
-                let _ = broadcast_state(&sender).await;
+                let _ = broadcast_state(&sender);
             }
         }
     });
 }
 
-async fn check_and_accept(sender: &WsSender) -> Result<(), String> {
+fn check_and_accept(sender: &WsSender) -> Result<(), String> {
     // 1. Auto-Accept Logic
-    let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None).await;
+    let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None);
     if let Ok(json) = ready_check {
         if json.contains("\"InProgress\"") {
-            let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None).await;
+            let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None);
             
             // Send WebSocket notification for the UI to display
             let _ = sender.0.send(json!({
@@ -47,15 +47,15 @@ async fn check_and_accept(sender: &WsSender) -> Result<(), String> {
     Ok(())
 }
 
-async fn broadcast_state(sender: &WsSender) -> Result<(), String> {
+fn broadcast_state(sender: &WsSender) -> Result<(), String> {
     // 1. Get Gameflow Phase
-    if let Ok(phase_json) = lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None).await {
+    if let Ok(phase_json) = lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None) {
         let phase: String = serde_json::from_str(&phase_json).unwrap_or_else(|_| "None".to_string());
         let _ = sender.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
     }
 
     // 2. Get Champ Select State (if in ChampSelect)
-    if let Ok(session_json) = lcu::lcu_request("GET".into(), "/lol-champ-select/v1/session".into(), None).await {
+    if let Ok(session_json) = lcu::lcu_request("GET".into(), "/lol-champ-select/v1/session".into(), None) {
         if let Ok(session) = serde_json::from_str::<serde_json::Value>(&session_json) {
             let my_cell_id = session["localPlayerCellId"].as_i64().unwrap_or(-1);
             let mut my_champ_id = 0;
@@ -75,7 +75,7 @@ async fn broadcast_state(sender: &WsSender) -> Result<(), String> {
 
             // Resolve name if we have a champion
             if my_champ_id > 0 {
-                if let Ok(champ_json) = lcu::lcu_request("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None).await {
+                if let Ok(champ_json) = lcu::lcu_request("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None) {
                     if let Ok(champ_data) = serde_json::from_str::<serde_json::Value>(&champ_json) {
                         my_champ_name = champ_data["name"].as_str().unwrap_or("").to_string();
                     }
@@ -91,7 +91,7 @@ async fn broadcast_state(sender: &WsSender) -> Result<(), String> {
     }
 
     // 3. Get Rank (occasionally)
-    if let Ok(rank_json) = lcu::lcu_request("GET".into(), "/lol-ranked/v1/current-ranked-stats".into(), None).await {
+    if let Ok(rank_json) = lcu::lcu_request("GET".into(), "/lol-ranked/v1/current-ranked-stats".into(), None) {
          if let Ok(rank_data) = serde_json::from_str::<serde_json::Value>(&rank_json) {
              let queues = rank_data["queues"].as_array();
              

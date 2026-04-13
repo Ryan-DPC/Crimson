@@ -3,8 +3,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
 use serde_json::json;
-use lcu_commands::storage;
-use lcu_commands::events::WsSender;
+use crate::storage;
+use crate::events::WsSender;
+use crate::sd_commands::StreamDeckCommand;
 
 pub async fn start_ws_server(sender: WsSender) {
     let addr = "127.0.0.1:40509".parse::<SocketAddr>().expect("Invalid address");
@@ -29,40 +30,46 @@ async fn handle_connection(stream: TcpStream, sender: WsSender) {
 
         let mut rx = sender.0.subscribe();
 
-            loop {
-                tokio::select! {
-                    msg = ws_stream.next() => {
-                        match msg {
-                            Some(Ok(msg)) => {
-                                if let Ok(text) = msg.to_text() {
-                                    if text.trim().is_empty() { continue; }
-                                    // Parse Command and Dispatch
-                                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
-                                        if value["type"] == "UPDATE_RESOURCE_MODE" {
-                                            if let Some(low) = value["low_resource"].as_bool() {
-                                                crate::state::set_low_resource_mode(low);
-                                                println!("Resource optimization: {}", if low { "ENABLED" } else { "DISABLED" });
-                                            }
-                                            continue;
+        loop {
+            tokio::select! {
+                msg = ws_stream.next() => {
+                    match msg {
+                        Some(Ok(msg)) => {
+                            if let Ok(text) = msg.into_text() {
+                                if text.trim().is_empty() { continue; }
+                                // Parse Command and Dispatch
+                                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                                    if value["type"] == "UPDATE_RESOURCE_MODE" {
+                                        if let Some(low) = value["low_resource"].as_bool() {
+                                            crate::state::set_low_resource_mode(low);
+                                            println!("Resource optimization: {}", if low { "ENABLED" } else { "DISABLED" });
                                         }
-
-                                        if let Ok(command) = serde_json::from_str::<lcu_commands::sd_commands::StreamDeckCommand>(text) {
-                                            if let Ok(Some(response_json)) = command.execute_standalone(&sender.0).await {
-                                                let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(response_json.to_string().into())).await;
-                                            }
-                                        }
-                                    } else {
-                                        println!("Failed to parse command from Client: {}", text);
+                                        continue;
                                     }
+
+                                    if let Ok(command) = serde_json::from_str::<StreamDeckCommand>(&text) {
+                                        // Simple command acknowledgement
+                                        let response_json = json!({
+                                            "type": "COMMAND_ACK",
+                                            "action": command.action,
+                                            "status": "ok"
+                                        });
+                                        let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(response_json.to_string().into())).await;
+                                    }
+                                } else {
+                                    println!("Failed to parse command from Client: {}", text);
                                 }
                             }
-                            _ => break,
                         }
+                        _ => break,
                     }
-                    Ok(broadcast_msg) = rx.recv() => {
-                        let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(broadcast_msg.into())).await;
+                }
+                Ok(broadcast_msg) = rx.recv() => {
+                    if let Err(_) = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(broadcast_msg.into())).await {
+                        break;
                     }
                 }
             }
         }
     }
+}

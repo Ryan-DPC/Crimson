@@ -1,5 +1,5 @@
 use tokio::sync::broadcast;
-use lcu_commands::events::WsSender;
+use crimson_server::events::WsSender;
 use crimson_server::{ws, lcu_ws, service};
 use clap::Parser;
 
@@ -58,4 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start External WebSocket Server (Sidecar -> UI/StreamDeck)
     println!("WebSocket server listening on 127.0.0.1:40509");
     ws::start_ws_server(sender).await;
+
+    Ok(())
 }

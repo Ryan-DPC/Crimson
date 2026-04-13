@@ -6,7 +6,7 @@ mod commands;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+    .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
@@ -28,6 +28,21 @@ pub fn run() {
     .setup(|app| {
       let handle = app.handle().clone();
       let path_resolver = handle.path();
+
+      // Autostart Logic
+      let autostart_manager = app.state::<tauri_plugin_autostart::AutoLaunchManager>();
+      let data = storage::load_data(&handle);
+      if data.launch_on_startup {
+          let _ = autostart_manager.enable();
+      }
+
+      // Check if started via autostart to start minimized
+      let args: Vec<String> = std::env::args().collect();
+      if args.iter().any(|a| a == "--autostart") {
+          if let Some(window) = app.get_webview_window("main") {
+              let _ = window.hide();
+          }
+      }
       
       // 1. Initialize Log IMMEDIATELY in the correct AppData folder
       if let Ok(app_data) = path_resolver.app_data_dir() {
@@ -116,12 +131,18 @@ pub fn run() {
           let path_resolver = sidecar_handle.path();
           let mut log_lines = Vec::new();
 
-          // 1. CLEANUP: Clear any hung processes
-          let _ = std::process::Command::new("taskkill")
-              .args(&["/F", "/IM", "crimson-server.exe", "/T"])
-              .creation_flags(0x08000000) // CREATE_NO_WINDOW
-              .status();
-          log_lines.push("Cleanup: taskkill finished.".to_string());
+          // 1. CLEANUP: Clear any hung processes (Native & Silent)
+          {
+              use sysinfo::{System, ProcessRefreshKind, RefreshKind};
+              let mut sys = System::new_with_specifics(
+                  RefreshKind::new().with_processes(ProcessRefreshKind::new())
+              );
+              sys.refresh_processes();
+              for process in sys.processes_by_exact_name("crimson-server.exe") {
+                  let _ = process.kill();
+              }
+          }
+          log_lines.push("Cleanup: native sysinfo finish.".to_string());
 
           // 2. Port Check
           if std::net::TcpStream::connect("127.0.0.1:40509").is_ok() {
@@ -155,6 +176,11 @@ pub fn run() {
 
                   let mut cmd = std::process::Command::new(&p);
                   cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
+                  
+                  // Ensure current directory is same as binary for local resource access
+                  if let Some(parent) = p.parent() {
+                      cmd.current_dir(parent);
+                  }
                   match cmd.spawn() {
                       Ok(_) => {
                           log_lines.push(format!("SUCCESS: Manual Detached spawned from {:?}", p));

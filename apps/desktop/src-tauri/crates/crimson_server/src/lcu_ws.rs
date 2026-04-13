@@ -1,8 +1,8 @@
+use crate::{lcu, storage, automation};
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{tungstenite::protocol::Message};
 use serde_json::{json, Value};
-use lcu_commands::lcu;
-use lcu_commands::events::WsSender;
+use crate::events::WsSender;
 use std::time::Duration;
 use tokio::time::sleep;
 use base64::{Engine as _, engine::general_purpose};
@@ -62,10 +62,11 @@ pub async fn start_lcu_ws(sender: WsSender) {
                                                 let _ = sender_clone.0.send(json!({"type": "GAME_PHASE", "phase": phase}).to_string());
                                                 
                                                 if phase == "ChampSelect" {
-                                                    let app_data = lcu_commands::storage::load_data_from_path(lcu_commands::storage::get_data_path_from_env());
-                                                    if !app_data.invisible_automation {
-                                                        // Sidecar requests the UI to show itself
-                                                        let _ = sender_clone.0.send(json!({"type": "REQUEST_UI_SHOW"}).to_string());
+                                                    let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
+                                                    if let Some(invisible) = app_data.other.get("invisibleAutomation").and_then(|v| v.as_bool()) {
+                                                        if !invisible {
+                                                            let _ = sender_clone.0.send(json!({"type": "REQUEST_UI_SHOW"}).to_string());
+                                                        }
                                                     }
                                                 }
                                             },
@@ -75,9 +76,7 @@ pub async fn start_lcu_ws(sender: WsSender) {
                                                 
                                                 // Trigger Automation
                                                 let auto_data = data.clone();
-                                                tokio::spawn(async move {
-                                                    lcu_commands::automation::handle_champ_select_standalone(&auto_data).await;
-                                                });
+                                                automation::handle_champ_select_standalone(&auto_data);
                                             },
                                             _ => {}
                                         }
