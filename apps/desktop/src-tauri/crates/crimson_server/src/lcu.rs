@@ -61,6 +61,10 @@ pub fn get_lcu_info() -> Result<LcuInfo, String> {
     Err("LCU not found".to_string())
 }
 
+pub fn is_lcu_connected() -> bool {
+    get_lcu_info().is_ok()
+}
+
 fn parse_cmdline(cmdline: &str) -> (u16, String) {
     let mut port = 0u16;
     let mut password = String::new();

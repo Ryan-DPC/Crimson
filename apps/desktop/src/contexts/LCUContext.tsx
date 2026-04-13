@@ -29,6 +29,10 @@ interface LCUContextType {
     availableVersion: string | null;
     remoteUpdateAssetUrl: string | null;
     
+    // Connection Status
+    serverConnected: boolean;
+    lolConnected: boolean;
+    
     // Actions
     setTab: (tab: string) => void;
     toggleSimMode: () => void;
@@ -81,6 +85,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [updateProgress, setUpdateProgress] = useState(0);
     const [availableVersion, setAvailableVersion] = useState<string | null>(null);
     const [remoteUpdateAssetUrl, setRemoteUpdateAssetUrl] = useState<string | null>(null);
+
+    const [serverConnected, setServerConnected] = useState(false);
+    const [lolConnected, setLolConnected] = useState(false);
 
     const scannedLobbyId = useRef<string>('');
     const lastFetchParams = useRef<string>('');
@@ -419,9 +426,18 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } else if (msg.type === 'RANK_UPDATE') {
                 setRank({ 
                     tier: msg.tier, division: msg.division, lp: msg.lp,
-                    tftTier: msg.tft_tier, tftDivision: msg.tft_division, tftLp: msg.tft_lp
+                    tftTier: msg.tft_tier, tftDivision: msg.tft_division, tft_lp: msg.tft_lp
                 });
+            } else if (msg.type === 'HEARTBEAT_STATUS') {
+                setServerConnected(msg.server);
+                setLolConnected(msg.lol);
             }
+        };
+
+        ws.onopen = () => setServerConnected(true);
+        ws.onclose = () => {
+            setServerConnected(false);
+            setLolConnected(false);
         };
 
         const timerInterval = setInterval(() => {
@@ -583,6 +599,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         <LCUContext.Provider value={{
             sum, lobbyState, lobbyMyTeam, lobbyTheirTeam, radar, gamePhase, rank, hist, champs, runesData: runesDataJson, v, myChamp, enemyMid, isLoadingBuilds, builds, isImporting, appData,
             updateStatus, updateProgress, availableVersion, remoteUpdateAssetUrl, checkUpdates, installUpdate,
+            serverConnected, lolConnected,
             setTab, toggleSimMode, simMode, tab, toggleAutoBan, toggleAutoPick, updateGeminiKey, updateSetting, doImport, handleSecondaryClick, handleShardClick
         }}>
             {children}

@@ -24,6 +24,13 @@ pub fn start_auto_accept_service(sender: WsSender) {
             if !crate::state::is_low_resource_mode() {
                 let _ = broadcast_state(&sender);
             }
+
+            // Always broadcast status heartbeat (v2.0.7)
+            let _ = sender.0.send(json!({
+                "type": "HEARTBEAT_STATUS",
+                "server": true,
+                "lol": lcu::is_lcu_connected()
+            }).to_string());
         }
     });
 }

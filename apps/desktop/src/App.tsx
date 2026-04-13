@@ -21,7 +21,8 @@ function App() {
   const { 
     tab, setTab, simMode, toggleSimMode, 
     gamePhase, rank, sum, appData, updateSetting,
-    updateStatus, updateProgress, availableVersion, installUpdate
+    updateStatus, updateProgress, availableVersion, installUpdate,
+    serverConnected, lolConnected
   } = useLCU();
 
   const [appVersion, setAppVersion] = useState<string>('1.1.0');
@@ -70,9 +71,16 @@ function App() {
           </div>
           <div data-tauri-drag-region className="pointer-events-none">
             <h1 className="text-sm font-black tracking-[0.2em] text-white/90 uppercase">Crimson</h1>
-            <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 tracking-wider">
-              <span className={`w-1.5 h-1.5 rounded-full ${sum ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              {sum ? 'LCU CONNECTED' : 'AWAITING CLIENT'}
+            <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${serverConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+                <span className={serverConnected ? 'text-white/60' : 'text-red-500/60'}>SERVER</span>
+              </div>
+              <div className="w-px h-2 bg-white/10" />
+              <div className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${lolConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)] animate-pulse' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+                <span className={lolConnected ? 'text-white/60' : 'text-red-500/60'}>LEAGUE</span>
+              </div>
             </div>
           </div>
         </div>
