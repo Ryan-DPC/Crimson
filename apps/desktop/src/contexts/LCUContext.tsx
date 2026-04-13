@@ -426,7 +426,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } else if (msg.type === 'RANK_UPDATE') {
                 setRank({ 
                     tier: msg.tier, division: msg.division, lp: msg.lp,
-                    tftTier: msg.tft_tier, tftDivision: msg.tft_division, tft_lp: msg.tft_lp
+                    tftTier: msg.tft_tier, tftDivision: msg.tft_division, tftLp: msg.tft_lp
                 });
             } else if (msg.type === 'HEARTBEAT_STATUS') {
                 setServerConnected(msg.server);
