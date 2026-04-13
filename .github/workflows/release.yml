@@ -100,12 +100,14 @@ jobs:
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           
-          # 1. Write the key file
-          [System.IO.File]::WriteAllText("tauri.key", $env:TEMP_KEY)
+          # 1. Extract ONLY the Base64 part of the key (handle 1 or 2 lines format)
+          $rawKey = $env:TEMP_KEY
+          $lines = $rawKey -split "`r?`n" | Where-Object { $_ -ne "" }
+          $cleanKey = if ($lines.Count -gt 1) { $lines[1].Trim() } else { $lines[0].Trim() }
           
-          # 2. Sign MSI
+          # 2. Sign MSI using the cleaned string
           echo "Signing MSI: $($msi.Name)"
-          npx tauri signer sign --private-key-path tauri.key --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$($msi.FullName)"
+          npx tauri signer sign --private-key $cleanKey --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$($msi.FullName)"
           $sig = Get-Content "$($msi.FullName).sig"
           
           # 3. Generate latest.json
