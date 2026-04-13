@@ -109,3 +109,15 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+      - name: Upload latest.json (Safety Net)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/src-tauri/target/release/latest.json
+            apps/desktop/src-tauri/target/release/bundle/msi/*.json
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.json
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
