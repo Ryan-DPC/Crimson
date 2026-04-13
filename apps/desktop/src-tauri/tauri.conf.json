@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CRIMSON",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "identifier": "com.laoy.crimson",
   "build": {
     "frontendDist": "../dist",
@@ -46,7 +46,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: CA4D6F991DFF45E7\nRWSUcL2T3YjrdcRhyhV6dHTZOnuU38XpSbSE7xsBdGb1mOIBKMJ1EBxw",
+      "pubkey": "untrusted comment: minisign public key: CA4D6F991DFF45E7\nRWTnRf8dmW9NygKQIdv1QyuPTnZeUtd14nr005Av/wyzw/vfy0L23i6Y",
       "endpoints": [
         "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
       ],
