@@ -101,7 +101,7 @@ jobs:
           ls -R src-tauri/target/release/*.json || true
         working-directory: apps/desktop
 
-      - name: Release v2.0.5
+      - name: Release v2.0.6
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
@@ -110,10 +110,9 @@ jobs:
           body: |
             ## ⚡ Crimson ${{ github.ref_name }}
             
-            Cette version finalise la migration vers l'architecture **Sidecar** et corrige l'Auto-Updater :
-            - **Auto-Update FIX** : Génération correcte des signatures et du fichier `latest.json`.
-            - **Optimisation Massive du Build** : Temps de compilation réduit grâce à la consolidation.
-            - **Stabilité** : Correction des fuites mémoire et des crashs au démarrage.
+            Cette version contient le correctif définitif pour l'Auto-Updater :
+            - **Auto-Update FIXED** : Signature Minisign fonctionnelle et métadonnées `latest.json` incluses.
+            - **Performance** : Build optimisé et sidecar consolidé.
           files: |
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi.zip*
