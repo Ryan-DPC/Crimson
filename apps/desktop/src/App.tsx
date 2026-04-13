@@ -20,7 +20,7 @@ import {
 function App() {
   const { 
     tab, setTab, simMode, toggleSimMode, 
-    gamePhase, rank, sum, appData, updateSetting,
+    gamePhase, rank, appData, updateSetting,
     updateStatus, updateProgress, availableVersion, installUpdate,
     serverConnected, lolConnected
   } = useLCU();
