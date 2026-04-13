@@ -101,7 +101,7 @@ jobs:
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           
           # 1. Write the key file
-          [System.IO.File]::WriteAllText("tauri.key", $env:TAURI_SIGNING_PRIVATE_KEY)
+          [System.IO.File]::WriteAllText("tauri.key", $env:TEMP_KEY)
           
           # 2. Sign MSI
           echo "Signing MSI: $($msi.Name)"
@@ -124,7 +124,7 @@ jobs:
           
           echo "Generated latest.json with signature: $sig"
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TEMP_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Release v2.2.0
