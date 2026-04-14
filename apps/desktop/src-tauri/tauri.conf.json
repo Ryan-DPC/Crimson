@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -46,7 +47,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: CA4D6F991DFF45E7\nRWTnRf8dmW9NygKQIdv1QyuPTnZeUtd14nr005Av/wyzw/vfy0L23i6Y",
+      "pubkey": "untrusted comment: minisign public key: 4FCCE3586FCEB857\nRWRXuM5vWOPMTxIYi6oJHnKzVqWF/u3ViarQIZPPYVno+mDk0Gr5VXcn",
       "endpoints": [
         "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
       ],
