@@ -104,9 +104,8 @@ jobs:
           $v = (Get-Content package.json | ConvertFrom-Json).version
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           
-          # Extract ONLY the signature line (2nd line) to avoid "multi-line" confusion
-          $sigContent = Get-Content "$($msi.FullName).sig"
-          $sig = if ($sigContent.Count -gt 1) { $sigContent[1].Trim() } else { $sigContent[0].Trim() }
+          # Extract ONLY the signature line (last line)
+          $sig = (Get-Content "$($msi.FullName).sig" | Select-Object -Last 1).Trim()
           
           echo "Generating latest.json for version $v with signature: $sig"
           
