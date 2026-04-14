@@ -47,7 +47,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: 4FCCE3586FCEB857\nRWRXuM5vWOPMTxIYi6oJHnKzVqWF/u3ViarQIZPPYVno+mDk0Gr5VXcn",
+      "pubkey": "RWRXuM5vWOPMTxIYi6oJHnKzVqWF/u3ViarQIZPPYVno+mDk0Gr5VXcn",
       "endpoints": [
         "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
       ],
