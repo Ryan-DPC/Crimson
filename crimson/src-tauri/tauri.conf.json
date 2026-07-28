@@ -57,7 +57,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGQ0NFMzU4NkZDRUI4NTcKUldSWHVNNXZXT1BNVHhJWWk2b0pIbkt6VnFXRi91M1ZpYXJRSVpQUFlWbm8rbURrMEdyNVZYY24K",
       "endpoints": [
-        "https://github.com/Ryan-DPC/Crimson/releases/latest/download/latest.json"
+        "https://github.com/Ryan-DPC/Crimsons/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "quiet"
