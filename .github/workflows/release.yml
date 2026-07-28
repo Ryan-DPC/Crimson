@@ -142,7 +142,27 @@ jobs:
         with:
           name: 'Crimsons ${{ github.ref_name }}'
           tag_name: ${{ github.ref_name }}
+          # Le corps rédigé s'affiche au-dessus des notes générées par GitHub.
+          # Sans lui, la rupture Spotify passerait inaperçue dans une simple
+          # liste de commits en anglais.
           generate_release_notes: true
+          body: |
+            ## Action requise après la mise à jour
+
+            **Votre intégration Spotify cessera de fonctionner tant que vous n'aurez pas renseigné vos propres identifiants.**
+
+            Crimsons ne fournit plus d'identifiants Spotify partagés : chaque installation utilise désormais sa propre application Spotify. Les vôtres restent sur votre machine et ne sont transmis à personne.
+
+            ### Reconnecter Spotify en 4 étapes
+
+            1. Ouvrez le [tableau de bord développeur Spotify](https://developer.spotify.com/dashboard) et créez une application
+            2. Dans ses paramètres, déclarez l'URL de redirection : `http://127.0.0.1:40510/callback`
+            3. Copiez son **Client ID** et son **Client Secret**
+            4. Dans Crimsons, allez dans **Paramètres → Spotify**, collez-les, puis cliquez sur **Associer Spotify**
+
+            Le reste de l'application n'est pas affecté : coach de draft, Discord, Twitch, Hue et Stream Deck continuent de fonctionner normalement.
+
+            ---
           files: |
             target/release/bundle/msi/*.msi
             target/release/bundle/msi/*.msi.sig
