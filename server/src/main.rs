@@ -22,8 +22,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     std::panic::set_hook(Box::new(|info| {
+        // Chemin resolu a l'execution : le chemin en dur pointait vers le
+        // dossier d'un poste precis, donc n'ecrivait rien ailleurs et exposait
+        // un nom d'utilisateur dans le binaire distribue.
         let msg = format!("CRITICAL PANIC: {:?}", info);
-        let _ = std::fs::write("C:\\Users\\Chino\\AppData\\Roaming\\com.laoy.crimson\\panic.log", &msg);
+        let path = crimson_server::storage::get_data_dir().join("panic.log");
+        let _ = std::fs::write(path, &msg);
     }));
 
     tracing::info!("--- SERVER'S STARTUP ---");

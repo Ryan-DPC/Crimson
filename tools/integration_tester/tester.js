@@ -3,12 +3,19 @@ const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
 
-const SERVER_CMD = 'F:\\CrimsonProject\\target\\release\\crimson-server.exe';
-const SERVER_ARGS = [];
-const SERVER_CWD = 'F:\\CrimsonProject';
-const WS_URL = 'ws://127.0.0.1:40510';
+// Chemins deduits de l'emplacement du script, surchargeables par variables
+// d'environnement. Les valeurs en dur pointaient vers un poste precis.
+const PROJECT_ROOT = process.env.CRIMSON_PROJECT_ROOT || path.resolve(__dirname, '..', '..');
 
-const STREAMDOCK_EXE = 'C:\\Program Files (x86)\\Stream Dock AJAZZ Global\\Stream Dock AJAZZ.exe';
+const SERVER_CMD = process.env.CRIMSON_SERVER_EXE
+    || path.join(PROJECT_ROOT, 'target', 'release', 'crimson-server.exe');
+const SERVER_ARGS = [];
+const SERVER_CWD = PROJECT_ROOT;
+const WS_URL = process.env.CRIMSON_WS_URL || 'ws://127.0.0.1:40510';
+
+const STREAMDOCK_EXE = process.env.STREAMDOCK_EXE
+    || path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+                 'Stream Dock AJAZZ Global', 'Stream Dock AJAZZ.exe');
 
 let serverProcess = null;
 let ws = null;

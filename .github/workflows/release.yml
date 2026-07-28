@@ -91,6 +91,19 @@ jobs:
           name: frontend-dist
           path: crimson/dist
 
+      # Ecrit avant la compilation du sidecar : server/build.rs y lit la
+      # configuration Supabase pour la figer dans le binaire, et Vite s'en sert
+      # ensuite pour le bundle. Une seule source pour les deux.
+      - name: Write frontend env
+        shell: pwsh
+        working-directory: crimson
+        run: |
+          "VITE_SUPABASE_URL=$env:VITE_SUPABASE_URL"           | Set-Content .env -Encoding utf8
+          "VITE_SUPABASE_ANON_KEY=$env:VITE_SUPABASE_ANON_KEY" | Add-Content .env -Encoding utf8
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - name: Build Sidecar
         run: cargo build -p crimson-server --release
 
@@ -103,19 +116,6 @@ jobs:
       - name: Install Tauri CLI
         run: npm ci
         working-directory: crimson
-
-      # beforeBuildCommand relance `npm run build`, ecrasant le dist telecharge :
-      # le .env doit donc exister ici aussi, sinon le bundle embarque dans
-      # l'installeur repart sans configuration Supabase.
-      - name: Write frontend env
-        shell: pwsh
-        working-directory: crimson
-        run: |
-          "VITE_SUPABASE_URL=$env:VITE_SUPABASE_URL"           | Set-Content .env -Encoding utf8
-          "VITE_SUPABASE_ANON_KEY=$env:VITE_SUPABASE_ANON_KEY" | Add-Content .env -Encoding utf8
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Build Tauri app (Cache only)
         if: github.ref == 'refs/heads/main'

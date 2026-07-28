@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
 use serde_json::json;
 use std::sync::Arc;
@@ -80,9 +79,63 @@ pub async fn start_ws_server_modular(
     }
 }
 
+/// Vrai si l'origine designe la machine locale. Couvre la webview Tauri, qui
+/// se presente sous http://tauri.localhost sur Windows.
+fn is_local_origin(origin: &str) -> bool {
+    let host = origin
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(origin);
+    let host = host.split('/').next().unwrap_or("");
+    // Retire le port sans casser une adresse IPv6 entre crochets.
+    let host = match host.rfind(':') {
+        Some(i) if !host[i..].contains(']') => &host[..i],
+        _ => host,
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+
+    host == "localhost"
+        || host == "127.0.0.1"
+        || host == "[::1]"
+        || host == "::1"
+        || host.ends_with(".localhost")
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::is_local_origin;
+
+    #[test]
+    fn accepte_les_clients_legitimes() {
+        // Webview Tauri (Windows), serveur de dev Vite, pages locales.
+        assert!(is_local_origin("http://tauri.localhost"));
+        assert!(is_local_origin("https://tauri.localhost"));
+        assert!(is_local_origin("tauri://localhost"));
+        assert!(is_local_origin("http://localhost:5173"));
+        assert!(is_local_origin("http://127.0.0.1:40510"));
+        assert!(is_local_origin("http://[::1]:8080"));
+    }
+
+    #[test]
+    fn refuse_les_pages_distantes() {
+        assert!(!is_local_origin("https://evil.com"));
+        assert!(!is_local_origin("http://example.org:8080"));
+    }
+
+    #[test]
+    fn resiste_aux_origines_trompeuses() {
+        // Sous-domaine qui imite localhost sans en etre un.
+        assert!(!is_local_origin("https://localhost.evil.com"));
+        // Chemin qui ressemble a un hote local.
+        assert!(!is_local_origin("https://evil.com/localhost"));
+        // Identifiants dans l'URL, hote reel a droite du @.
+        assert!(!is_local_origin("https://evil.com#localhost"));
+    }
+}
+
 async fn handle_connection(
-    stream: TcpStream, 
-    sender: WsSender, 
+    stream: TcpStream,
+    sender: WsSender,
     spotify: Option<Arc<SpotifyService>>, 
     discord: Option<Arc<DiscordService>>, 
     hue: Option<Arc<HueService>>,
@@ -92,7 +145,26 @@ async fn handle_connection(
     is_auto_accept_enabled: Arc<std::sync::atomic::AtomicBool>
 ) {
 
-    if let Ok(mut ws_stream) = accept_async(stream).await {
+    // Les navigateurs autorisent les WebSocket vers 127.0.0.1 sans CORS : sans
+    // ce controle, n'importe quelle page web visitee peut piloter le serveur.
+    // Un navigateur envoie toujours Origin et ne peut pas le falsifier ; les
+    // clients natifs (application Tauri, plugins StreamDock) n'en envoient pas.
+    let origin_check = |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                        res: tokio_tungstenite::tungstenite::handshake::server::Response| {
+        if let Some(origin) = req.headers().get("origin").and_then(|v| v.to_str().ok()) {
+            if !is_local_origin(origin) {
+                tracing::warn!("[WS] Connexion refusee, origine externe : {}", origin);
+                let mut err = tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(
+                    Some("Origin not allowed".to_string()),
+                );
+                *err.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN;
+                return Err(err);
+            }
+        }
+        Ok(res)
+    };
+
+    if let Ok(mut ws_stream) = tokio_tungstenite::accept_hdr_async(stream, origin_check).await {
         tracing::info!("[WS] New client connection accepted");
         tracing::info!("");
         
@@ -364,19 +436,12 @@ async fn handle_connection(
                                     // Session Supabase transmise par l'application. Gardee en
                                     // memoire uniquement : elle ne doit jamais toucher le disque.
                                     if value["type"] == "AUTH_SESSION" {
-                                        match (
-                                            value["access_token"].as_str(),
-                                            value["supabase_url"].as_str(),
-                                            value["supabase_anon_key"].as_str(),
-                                        ) {
-                                            (Some(token), Some(url), Some(key))
-                                                if !token.is_empty() && !url.is_empty() && !key.is_empty() =>
-                                            {
-                                                crate::entitlement::set_session(
-                                                    token.to_string(),
-                                                    url.to_string(),
-                                                    key.to_string(),
-                                                );
+                                        // Seul le jeton vient du client. L'URL de verification est
+                                        // figee dans le binaire : la laisser au client reviendrait a
+                                        // le laisser choisir qui atteste de ses propres droits.
+                                        match value["access_token"].as_str() {
+                                            Some(token) if !token.is_empty() => {
+                                                crate::entitlement::set_session(token.to_string());
                                             }
                                             _ => crate::entitlement::clear_session(),
                                         }

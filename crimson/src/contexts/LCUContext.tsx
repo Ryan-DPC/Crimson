@@ -543,11 +543,11 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const ws = socketsRef.current[40510];
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+        // Seul le jeton part : le serveur connait deja son point de
+        // verification, le lui laisser choisir serait la faille.
         ws.send(JSON.stringify({
             type: 'AUTH_SESSION',
             access_token: session?.access_token ?? null,
-            supabase_url: import.meta.env.VITE_SUPABASE_URL,
-            supabase_anon_key: import.meta.env.VITE_SUPABASE_ANON_KEY,
         }));
     }, [session, authLoading, serverConnected]);
 
