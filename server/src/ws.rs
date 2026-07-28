@@ -287,6 +287,16 @@ async fn handle_connection(
 
                                     if value["type"] == "TOGGLE_PLUGIN" {
                                         if let (Some(plugin), Some(enabled)) = (value["plugin"].as_str(), value["enabled"].as_bool()) {
+                                            // Sans ce controle, n'importe quel client WebSocket
+                                            // local activait un service premium d'un seul message.
+                                            if enabled
+                                                && ["spotify", "discord", "hue", "twitch"].contains(&plugin)
+                                                && !crate::entitlement::is_premium().await
+                                            {
+                                                tracing::warn!("[AUTH] Blocked TOGGLE_PLUGIN {} for free user", plugin);
+                                                let _ = sender.0.send(json!({ "type": "AUTH_ERROR", "message": "Abonnement Premium Requis" }).to_string());
+                                                continue;
+                                            }
                                             // Toggle in-memory states
                                             match plugin {
                                                 "spotify" => {
@@ -351,6 +361,28 @@ async fn handle_connection(
                                         continue;
                                     }
 
+                                    // Session Supabase transmise par l'application. Gardee en
+                                    // memoire uniquement : elle ne doit jamais toucher le disque.
+                                    if value["type"] == "AUTH_SESSION" {
+                                        match (
+                                            value["access_token"].as_str(),
+                                            value["supabase_url"].as_str(),
+                                            value["supabase_anon_key"].as_str(),
+                                        ) {
+                                            (Some(token), Some(url), Some(key))
+                                                if !token.is_empty() && !url.is_empty() && !key.is_empty() =>
+                                            {
+                                                crate::entitlement::set_session(
+                                                    token.to_string(),
+                                                    url.to_string(),
+                                                    key.to_string(),
+                                                );
+                                            }
+                                            _ => crate::entitlement::clear_session(),
+                                        }
+                                        continue;
+                                    }
+
                                     if value["type"] == "SPOTIFY_AUTH" {
                                         if let (Some(access), Some(refresh)) = (value["access_token"].as_str(), value["refresh_token"].as_str()) {
                                             let expires_in = value["expires_in"].as_u64().unwrap_or(3600);
@@ -378,8 +410,9 @@ async fn handle_connection(
 
                                     let cmd_type = value["type"].as_str().unwrap_or("");
                                     if ["SPOTIFY_COMMAND", "DISCORD_COMMAND", "HUE_COMMAND", "TWITCH_COMMAND"].contains(&cmd_type) {
-                                        let app_data = crate::storage::load_data_from_path(crate::storage::get_data_path_from_env());
-                                        if !app_data.is_premium {
+                                        // Le verdict vient de Supabase, plus de data.json : ce
+                                        // fichier est ecrit par le client et modifiable a la main.
+                                        if !crate::entitlement::is_premium().await {
                                             tracing::warn!("[AUTH] Blocked {} for free user", cmd_type);
                                             let _ = sender.0.send(json!({ "type": "AUTH_ERROR", "message": "Abonnement Premium Requis" }).to_string());
                                             continue;

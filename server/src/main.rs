@@ -130,11 +130,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&true);
-    let is_premium = app_data.is_premium;
-    let is_spotify_enabled_val = is_premium && *plugins_map.get("spotify").unwrap_or(&false);
-    let is_discord_enabled_val = is_premium && *plugins_map.get("discord").unwrap_or(&false);
-    let is_twitch_enabled_val = is_premium && *plugins_map.get("twitch").unwrap_or(&false);
-    let is_hue_enabled_val = is_premium && *plugins_map.get("hue").unwrap_or(&false);
 
     let is_lol_enabled = Arc::new(std::sync::atomic::AtomicBool::new(is_lol_enabled_val));
     let is_auto_accept_enabled = Arc::new(std::sync::atomic::AtomicBool::new(app_data.auto_accept));
@@ -147,17 +142,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lcu_enabled_clone = is_lol_enabled.clone();
     tokio::spawn(async move { lcu_ws::start_lcu_ws(lcu_sender, lcu_enabled_clone).await; });
 
+    // Les services premium demarrent desactives. C'est entitlement::start_guard
+    // qui les allumera une fois les droits confirmes aupres de Supabase :
+    // data.json ne peut plus servir a les activer.
     let s = Arc::new(spotify::SpotifyService::new(sender.clone()));
-    s.is_enabled.store(is_spotify_enabled_val, std::sync::atomic::Ordering::Relaxed);
-    
     let d = Arc::new(discord::DiscordService::new(sender.clone()));
-    d.is_enabled.store(is_discord_enabled_val, std::sync::atomic::Ordering::Relaxed);
-    
     let h = Arc::new(hue::HueService::new(sender.clone()));
-    h.is_enabled.store(is_hue_enabled_val, std::sync::atomic::Ordering::Relaxed);
-    
     let t = Arc::new(twitch::TwitchService::new(sender.clone()));
-    t.is_enabled.store(is_twitch_enabled_val, std::sync::atomic::Ordering::Relaxed);
+
+    crimson_server::entitlement::start_guard(vec![
+        ("spotify", s.is_enabled.clone()),
+        ("discord", d.is_enabled.clone()),
+        ("hue", h.is_enabled.clone()),
+        ("twitch", t.is_enabled.clone()),
+    ]);
 
     let hotkey_manager = crimson_server::hotkeys::HotkeyManager::new(sender.clone(), s.clone(), d.clone());
     let hm_poll = Arc::new(hotkey_manager);

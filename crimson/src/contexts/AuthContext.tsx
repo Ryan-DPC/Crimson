@@ -58,17 +58,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .single();
 
             if (error) throw error;
-            
-            // Check robust token rule
-            let hasValidPremium = false;
-            if (data?.is_premium && data?.premium_token && data.premium_token.length >= 64) {
-                const numberCount = (data.premium_token.match(/\d/g) || []).length;
-                if (numberCount >= 5) {
-                    hasValidPremium = true;
-                }
-            }
-            
-            setIsPremium(hasValidPremium);
+
+            // Sert uniquement a l'affichage. L'ancienne heuristique sur la
+            // longueur du jeton ne prouvait rien : c'est la base qui fait foi,
+            // et le serveur local revalide de son cote avant toute commande.
+            setIsPremium(data?.is_premium === true);
 
             // Start the backend server now that we are authenticated
             try {
