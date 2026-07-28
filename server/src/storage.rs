@@ -17,6 +17,9 @@ pub struct AppData {
     pub spotify_client_secret: String,
     
     // Premium and Custom Settings
+    /// Conserve pour compatibilite et affichage uniquement. Ne jamais s'en
+    /// servir pour autoriser quoi que ce soit : ce fichier est ecrit par le
+    /// client et modifiable a la main. Voir crate::entitlement.
     #[serde(default)]
     pub is_premium: bool,
     #[serde(default)]

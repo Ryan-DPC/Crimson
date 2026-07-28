@@ -71,12 +71,10 @@ const SettingsTab = () => {
     };
 
     const handleSavePremiumToken = async () => {
+        // Le jeton est seulement conserve pour reference. Le statut premium n'est
+        // jamais decide ici : il vient de Supabase et c'est le serveur local qui
+        // le verifie. Un client ne doit pas pouvoir se l'attribuer.
         await updateSetting('premiumToken', premiumTokenInput);
-        if (premiumTokenInput.length >= 64 && (premiumTokenInput.match(/\d/g) || []).length >= 5) {
-            await updateSetting('isPremium', true);
-        } else {
-            await updateSetting('isPremium', false);
-        }
     };
 
     const handleSaveSpotifyCredentials = async () => {

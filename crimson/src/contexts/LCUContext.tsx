@@ -113,13 +113,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [simMode, setSimMode] = useState(false);
     const [tab, setTab] = useState('home');
     const [appData, setAppData] = useState<any>(null);
-    const { isPremium, loading } = useAuth();
-
-    useEffect(() => {
-        if (!loading && appData && appData.isPremium !== isPremium) {
-            updateSetting('isPremium', isPremium);
-        }
-    }, [isPremium, appData, loading]);
+    const { session, loading: authLoading } = useAuth();
 
     // Update State
     const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'installing'>('idle');
@@ -539,6 +533,23 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         ws.onerror = () => ws.close();
     };
+
+    // Le serveur local ne peut pas se fier a data.json pour les droits : ce
+    // fichier est modifiable a la main. On lui transmet la session Supabase,
+    // il verifie lui-meme aupres de Supabase et ne conserve rien sur disque.
+    // Renvoye a chaque reconnexion, sa memoire etant vide au demarrage.
+    useEffect(() => {
+        if (authLoading || !serverConnected) return;
+        const ws = socketsRef.current[40510];
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        ws.send(JSON.stringify({
+            type: 'AUTH_SESSION',
+            access_token: session?.access_token ?? null,
+            supabase_url: import.meta.env.VITE_SUPABASE_URL,
+            supabase_anon_key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        }));
+    }, [session, authLoading, serverConnected]);
 
     const handleWsMessage = async (msg: any, ws: WebSocket) => {
         if (msg.type === 'GAME_PHASE') {

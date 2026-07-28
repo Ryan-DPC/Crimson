@@ -127,8 +127,9 @@ pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<Spo
        action.starts_with("com.laoy.streamdock.discord") || 
        action.starts_with("com.laoy.streamdock.hue") || 
        action.starts_with("com.laoy.streamdock.twitch") {
-        let app_data = crate::storage::load_data_from_path(crate::storage::get_data_path_from_env());
-        if !app_data.is_premium {
+        // Meme regle que pour les commandes WebSocket : le verdict vient de
+        // Supabase, jamais de data.json.
+        if !crate::entitlement::is_premium().await {
             tracing::warn!("[AUTH] Blocked StreamDock action {} for free user", action);
             return;
         }
