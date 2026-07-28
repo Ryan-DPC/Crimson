@@ -508,9 +508,23 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         connectSingleWs(40510);
     };
 
-    const connectSingleWs = (port: number) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-        
+    const connectSingleWs = async (port: number) => {
+        // Le jeton est regenere a chaque demarrage du serveur : on le relit a
+        // chaque tentative plutot que de le mettre en cache. Il transite par
+        // l'URL, l'API WebSocket des navigateurs interdisant les en-tetes.
+        let token = '';
+        try {
+            token = (await invoke<string | null>('crimson_get_auth_token')) ?? '';
+        } catch {
+            // Serveur pas encore demarre : on tente sans, il acceptera tant que
+            // le mode strict n'est pas actif.
+        }
+        const url = token
+            ? `ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`
+            : `ws://127.0.0.1:${port}`;
+
+        const ws = new WebSocket(url);
+
         ws.onopen = () => {
             console.log(`Connected to service on port ${port}`);
             if (port === 40510) setServerConnected(true);

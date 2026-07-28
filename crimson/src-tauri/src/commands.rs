@@ -151,6 +151,14 @@ fn log_to_launch_file(app: &tauri::AppHandle, message: &str) {
     }
 }
 
+/// Jeton d'authentification du serveur local, lu depuis le dossier de donnees.
+/// Il transite par une commande Tauri plutot que d'etre expose au frontend :
+/// la webview n'a pas acces au disque.
+#[tauri::command]
+pub fn crimson_get_auth_token() -> Option<String> {
+    crimson_server::auth::read_token().filter(|t| !t.is_empty())
+}
+
 #[tauri::command]
 pub fn crimson_get_actual_server_path(app: tauri::AppHandle) -> Option<String> {
     find_server_path(&app).map(|p| {

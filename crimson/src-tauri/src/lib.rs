@@ -39,7 +39,8 @@ pub fn run() {
         commands::youtube_search,
         commands::download_music_video,
         commands::check_plugin_presence,
-        commands::crimson_get_actual_server_path
+        commands::crimson_get_actual_server_path,
+        commands::crimson_get_auth_token
     ])
     .setup(|app| {
       let handle = app.handle().clone();
