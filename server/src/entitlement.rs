@@ -18,11 +18,14 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 /// Intervalle de reapplication du verdict aux services premium.
 const GUARD_INTERVAL: Duration = Duration::from_secs(20);
 
+/// Point de verification fige a la compilation (voir build.rs). Il ne doit
+/// jamais venir du client : celui-ci pourrait designer un serveur complaisant.
+const SUPABASE_URL: &str = env!("CRIMSON_SUPABASE_URL");
+const SUPABASE_ANON_KEY: &str = env!("CRIMSON_SUPABASE_ANON_KEY");
+
 #[derive(Clone)]
 struct Session {
     access_token: String,
-    supabase_url: String,
-    supabase_anon_key: String,
 }
 
 #[derive(Clone, Copy)]
@@ -39,10 +42,12 @@ lazy_static::lazy_static! {
     static ref WAKE: tokio::sync::Notify = tokio::sync::Notify::new();
 }
 
-/// Enregistre la session transmise par l'application apres authentification.
-pub fn set_session(access_token: String, supabase_url: String, supabase_anon_key: String) {
+/// Enregistre le jeton de session transmis par l'application apres
+/// authentification. Seul le jeton vient du client : il est ensuite presente a
+/// un point de verification que le client ne choisit pas.
+pub fn set_session(access_token: String) {
     if let Ok(mut s) = SESSION.write() {
-        *s = Some(Session { access_token, supabase_url, supabase_anon_key });
+        *s = Some(Session { access_token });
     }
     invalidate();
     tracing::info!("[ENTITLEMENT] Session enregistree, verdict a revalider");
@@ -132,14 +137,18 @@ pub async fn is_premium() -> bool {
 /// Interroge Supabase avec le jeton de l'utilisateur. La RLS ne lui renvoie que
 /// sa propre ligne, il n'y a donc pas d'identifiant a passer.
 async fn fetch(s: &Session) -> Result<bool, String> {
+    if SUPABASE_URL.is_empty() || SUPABASE_ANON_KEY.is_empty() {
+        return Err("configuration Supabase absente du binaire".to_string());
+    }
+
     let url = format!(
         "{}/rest/v1/profiles?select=is_premium",
-        s.supabase_url.trim_end_matches('/')
+        SUPABASE_URL.trim_end_matches('/')
     );
 
     let resp = reqwest::Client::new()
         .get(&url)
-        .header("apikey", &s.supabase_anon_key)
+        .header("apikey", SUPABASE_ANON_KEY)
         .header("Authorization", format!("Bearer {}", s.access_token))
         .header("Accept", "application/json")
         .timeout(HTTP_TIMEOUT)
