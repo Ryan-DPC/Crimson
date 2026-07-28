@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crimson/src-tauri",
+    "server",
+    "crimson/src-tauri/crates/lcu_commands"
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3          # Maximize speed optimizations
+lto = true             # Enable Link-Time Optimization
+codegen-units = 1      # Set to 1 for maximum compiler optimizations
+panic = "abort"        # Minimize binary size and unwinding overhead
+strip = true           # Automatically strip symbols from final binaries

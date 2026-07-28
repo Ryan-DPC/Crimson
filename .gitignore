@@ -1,0 +1,39 @@
+# --- Artefacts de compilation ---
+target/
+**/target/
+crimson/src-tauri/gen/schemas/
+crimson/src-tauri/build_log.txt
+
+# Sidecar copie par scripts/build_release.ps1, regenerable
+crimson/src-tauri/bin/
+
+# --- Dependances ---
+node_modules/
+
+# --- Sorties de build front ---
+dist/
+dist-ssr/
+
+# --- Secrets : ne jamais versionner ---
+.env
+.env.*
+!.env.example
+# jetons OAuth Spotify personnels (regenerables en se reconnectant dans l'app)
+plugins/streamdeck/*/propertyInspector/utils/tokens.js
+
+# --- Journaux ---
+*.log
+logs/
+
+# --- OS / editeurs ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

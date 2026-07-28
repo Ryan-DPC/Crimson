@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #0a0a0c;
+  color: #f1f5f9;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(220,38,38,0.5);
+}
+
+@keyframes scanline {
+  0% { top: 0%; opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.scanning-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(to right, transparent, rgba(220, 38, 38, 0.8) 50%, transparent);
+  box-shadow: 0 0 20px 2px rgba(220, 38, 38, 0.4);
+  pointer-events: none;
+  z-index: 100;
+  animation: scanline 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Reduced Animations Support */
+.reduced-animations *,
+.reduced-animations *::before,
+.reduced-animations *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
+
+/* Dark Glass Mode Support */
+.dark-glass {
+  --glass-bg: rgba(5, 5, 5, 0.95);
+  --glass-blur: 20px;
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+.dark-glass .backdrop-blur-xl,
+.dark-glass .backdrop-blur-sm,
+.dark-glass .bg-white\/5,
+.dark-glass .bg-black\/60 {
+  background-color: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: var(--glass-border) !important;
+}
+
+/* Premium Settings Utilities */
+.settings-tab-active {
+    color: white !important;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+.segmented-control-bg {
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Glass Card Refinements */
+.glass-card {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.5s ease;
+}
+
+.glass-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
+}
+
+/* Status Indicator Glows */
+@keyframes pulse-glow {
+    0% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.2); }
+    50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.5); }
+    100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.2); }
+}
+
+.status-online {
+    animation: pulse-glow 2s infinite ease-in-out;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 38, 38, 0.4);
+}
+
+/* Utility for smooth transitions */
+.transition-all-500 {
+    transition: all 500ms cubic-bezier(0.4, 0, 0.2, 1);
+}

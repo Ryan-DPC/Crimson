@@ -1,0 +1,23 @@
+[package]
+name = "lcu_commands"
+version = "3.0.5"
+edition = "2021"
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.10.3", features = [] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "time"] }
+chrono = "0.4.44"
+regex = "1.12.3"
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+base64 = "0.21"
+http = "1.0"
+native-tls = "0.2"
+r2d2 = "0.8"
+r2d2_sqlite = "0.25.0"
+sysinfo = "0.30"
+futures-util = "0.3.32"
+tauri-plugin-updater = "2"

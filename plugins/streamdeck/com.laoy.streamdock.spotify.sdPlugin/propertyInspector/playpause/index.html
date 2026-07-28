@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Spotify - Play/Pause</title>
+    <link rel="stylesheet" href="../utils/crimson.css">
+</head>
+<body>
+<div class="sdpi-wrapper">
+    <div class="status-pill">
+        <div class="status-dot"></div>
+        <span>Crimson Relay Active</span>
+    </div>
+
+    <div class="section-header">Device Settings</div>
+
+    <div class="sdpi-item">
+        <div class="sdpi-item-label">Target Device</div>
+        <select class="sdpi-item-value select" id="deviceSelect">
+            <option value="">Syncing Devices...</option>
+        </select>
+    </div>
+
+    <div class="section-header">Display</div>
+
+    <div class="sdpi-item">
+        <div class="sdpi-item-label">Time Format</div>
+        <select class="sdpi-item-value select" id="timeDisplay">
+            <option value="remaining">Remaining Time</option>
+            <option value="elapsed">Elapsed Time</option>
+            <option value="none">None</option>
+        </select>
+    </div>
+
+    <button id="logoutBtn">Logout</button>
+</div>
+<script src="../utils/common.js"></script>
+<script src="../utils/action.js"></script>
+<script src="index.js"></script>
+</body>
+</html>

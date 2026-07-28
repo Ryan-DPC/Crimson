@@ -1,0 +1,75 @@
+use serde_json::Value;
+use crate::{lcu, storage};
+
+pub fn handle_champ_select_standalone(data: &Value) {
+    let local_player_cell_id = data["localPlayerCellId"].as_i64().unwrap_or(-1);
+    if local_player_cell_id == -1 { return; }
+
+    let actions = match data["actions"].as_array() {
+        Some(a) => a,
+        None => return,
+    };
+
+    let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
+    
+    for group in actions {
+        if let Some(group_arr) = group.as_array() {
+            for action in group_arr {
+                let actor_cell_id = action["actorCellId"].as_i64().unwrap_or(-1);
+                if actor_cell_id != local_player_cell_id { continue; }
+
+                let is_active = action["isInProgress"].as_bool().unwrap_or(false);
+                if !is_active { continue; }
+
+                let action_type = action["type"].as_str().unwrap_or("");
+                let action_id = action["id"].as_i64().unwrap_or(-1);
+                let completed = action["completed"].as_bool().unwrap_or(false);
+
+                if completed { continue; }
+
+                if action_type == "ban" {
+                    if let Some(target_id) = app_data.other.get("autoBan").and_then(|v| v.as_u64()) {
+                         println!("Automation: Executing Auto-Ban for champion {}", target_id);
+                         let _ = execute_action(action_id, target_id as u32, true);
+                    }
+                } else if action_type == "pick" {
+                    if let Some(target_id) = app_data.other.get("autoPick").and_then(|v| v.as_u64()) {
+                        println!("Automation: Executing Auto-Pick for champion {}", target_id);
+                        let _ = execute_action(action_id, target_id as u32, false);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn handle_ready_check(data: &Value) {
+    let state = data["state"].as_str().unwrap_or("");
+    let player_status = data["playerResponse"].as_str().unwrap_or("");
+
+    if state == "Proposed" && player_status == "None" {
+        let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
+        if app_data.auto_accept {
+            println!("Automation: Detected match! Auto-Accepting...");
+            let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None);
+        }
+    }
+}
+
+fn execute_action(action_id: i64, champion_id: u32, _should_complete: bool) -> Result<(), String> {
+    let body = serde_json::json!({
+        "championId": champion_id,
+        "completed": true
+    });
+
+    let res = lcu::lcu_request(
+        "PATCH".into(), 
+        format!("/lol-champ-select/v1/session/actions/{}", action_id), 
+        Some(body.to_string())
+    );
+
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Action execution failed: {}", e))
+    }
+}
