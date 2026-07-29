@@ -21,6 +21,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Un BOM UTF-8 en tete d'un JSON ou d'un TOML le rend illisible : Tauri
+      # echouait sur "expected value at line 1 column 1". Les editions faites
+      # sous Windows PowerShell 5.1 en ajoutent un sans prevenir.
+      - name: Verify no BOM in JSON/TOML
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+              echo "::error file=$f::Ce fichier commence par un BOM UTF-8, ce qui le rend illisible."
+              fail=1
+            fi
+          done < <(git ls-files '*.json' '*.toml')
+          if [ "$fail" -eq 0 ]; then echo "Aucun BOM dans les fichiers JSON/TOML."; fi
+          exit $fail
       - uses: actions/setup-node@v4
         with:
           node-version: 20
