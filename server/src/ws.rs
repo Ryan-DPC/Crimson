@@ -35,53 +35,189 @@ pub async fn start_ws_server_modular(
     is_lol_enabled: Arc<std::sync::atomic::AtomicBool>,
     is_auto_accept_enabled: Arc<std::sync::atomic::AtomicBool>
 ) {
-    let addr_str = format!("127.0.0.1:{}", port);
-    let addr = addr_str.parse::<SocketAddr>().expect("Invalid address");
+    // Ecoute sur les deux adresses de bouclage. Sous Windows, "localhost"
+    // resout vers ::1 avant 127.0.0.1 : un client qui utilise le nom plutot que
+    // l'adresse litterale se voyait refuser la connexion, alors que le serveur
+    // tournait. L'ecoute IPv6 est facultative, son echec n'est pas bloquant.
+    let addr = format!("127.0.0.1:{}", port)
+        .parse::<SocketAddr>()
+        .expect("Invalid address");
+
+    let listener_v6 = match format!("[::1]:{}", port).parse::<SocketAddr>() {
+        Ok(a6) => match TcpListener::bind(&a6).await {
+            Ok(l) => {
+                tracing::info!("WebSocket server listening on [::1]:{}", port);
+                Some(l)
+            }
+            Err(e) => {
+                tracing::warn!("Ecoute IPv6 impossible sur [::1]:{} ({}), 127.0.0.1 seule", port, e);
+                None
+            }
+        },
+        Err(_) => None,
+    };
+
     match TcpListener::bind(&addr).await {
         Ok(listener) => {
-            while let Ok((stream, _)) = listener.accept().await {
-                let sender_clone = WsSender(sender.0.clone());
-                let spotify_clone = spotify_service.clone();
-                let discord_clone = discord_service.clone();
-                let hue_clone = hue_service.clone();
-                let twitch_clone = twitch_service.clone();
-                let db_clone = db.clone();
-                let is_lol_enabled_clone = is_lol_enabled.clone();
-                let is_auto_accept_enabled_clone = is_auto_accept_enabled.clone();
+            // Fusionne les deux ecoutes : chaque connexion est traitee de facon
+            // identique, quelle que soit l'adresse par laquelle elle arrive.
+            if let Some(l6) = listener_v6 {
+                let s = WsSender(sender.0.clone());
+                let sp = spotify_service.clone();
+                let di = discord_service.clone();
+                let hu = hue_service.clone();
+                let tw = twitch_service.clone();
+                let db6 = db.clone();
+                let lol6 = is_lol_enabled.clone();
+                let aa6 = is_auto_accept_enabled.clone();
                 tokio::spawn(async move {
-                    // Peek for HTTP GET (Spotify Callback)
-                    let mut buffer = [0; 1024];
-                    if stream.peek(&mut buffer).await.is_ok() {
-                        let request = String::from_utf8_lossy(&buffer);
-                        if request.starts_with("GET /callback") {
-                            if let Some(code_start) = request.find("code=") {
-                                let code = request[code_start + 5..].split_whitespace().next().unwrap_or("");
-                                let code = code.split('&').next().unwrap_or(code);
-                                let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
-                                use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                                let mut stream = stream;
-                                let mut drop_buf = [0; 4096];
-                                let _ = stream.read(&mut drop_buf).await; // Consume the incoming HTTP request headers to prevent TCP RST on close
-                                let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Spotify Connected!</h1><p>You can close this window now.</p></div></body></html>";
-                                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
-                                let _ = stream.write_all(response.as_bytes()).await;
-                                let _ = stream.shutdown().await;
-                                return;
-                            }
-                        }
-                    }
-                    handle_connection(stream, sender_clone, spotify_clone, discord_clone, hue_clone, twitch_clone, db_clone, is_lol_enabled_clone, is_auto_accept_enabled_clone).await;
+                    accept_loop(l6, s, sp, di, hu, tw, db6, lol6, aa6).await;
                 });
             }
+
+            tracing::info!("WebSocket server listening on {}", addr);
+            accept_loop(
+                listener, sender, spotify_service, discord_service, hue_service,
+                twitch_service, db, is_lol_enabled, is_auto_accept_enabled,
+            ).await;
             tracing::error!("WebSocket listener accept loop exited!");
         },
         Err(e) => tracing::error!("Failed to bind to {}: {}", addr, e),
     }
 }
 
+/// Portee demandee a Spotify. Identique a celle de l'application, pour qu'un
+/// jeton obtenu par un chemin serve a l'autre.
+const SPOTIFY_SCOPES: &str = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private";
+
+/// Extrait un parametre de la premiere ligne d'une requete HTTP.
+fn query_param(request: &str, key: &str) -> Option<String> {
+    let line = request.lines().next()?;
+    let query = line.split('?').nth(1)?.split_whitespace().next()?;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        if k == key && !v.is_empty() { Some(v.to_string()) } else { None }
+    })
+}
+
+/// Boucle d'acceptation, partagee par les ecoutes IPv4 et IPv6.
+async fn accept_loop(
+    listener: TcpListener,
+    sender: WsSender,
+    spotify_service: Option<Arc<SpotifyService>>,
+    discord_service: Option<Arc<DiscordService>>,
+    hue_service: Option<Arc<HueService>>,
+    twitch_service: Option<Arc<TwitchService>>,
+    db: Arc<crate::db::StreamDockDB>,
+    is_lol_enabled: Arc<std::sync::atomic::AtomicBool>,
+    is_auto_accept_enabled: Arc<std::sync::atomic::AtomicBool>,
+) {
+    while let Ok((stream, _)) = listener.accept().await {
+        let sender_clone = WsSender(sender.0.clone());
+        let spotify_clone = spotify_service.clone();
+        let discord_clone = discord_service.clone();
+        let hue_clone = hue_service.clone();
+        let twitch_clone = twitch_service.clone();
+        let db_clone = db.clone();
+        let is_lol_enabled_clone = is_lol_enabled.clone();
+        let is_auto_accept_enabled_clone = is_auto_accept_enabled.clone();
+        tokio::spawn(async move {
+            // Peek for HTTP GET (Spotify Callback)
+            let mut buffer = [0; 1024];
+            if stream.peek(&mut buffer).await.is_ok() {
+                let request = String::from_utf8_lossy(&buffer);
+
+                // Point d'entree de l'autorisation Spotify, utilise par les
+                // plugins StreamDock. Le plugin d'origine visait un composant
+                // Mirabox sur le port 26433, absent ici : le serveur prend le
+                // relais et mene le flux OAuth de bout en bout, sans exiger que
+                // l'application soit ouverte.
+                if request.starts_with("GET /authorization") {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let id = query_param(&request, "clientId");
+                    let secret = query_param(&request, "clientSecret");
+                    let mut stream = stream;
+                    let mut drop_buf = [0; 4096];
+                    let _ = stream.read(&mut drop_buf).await;
+
+                    let response = match (id, secret) {
+                        (Some(id), Some(secret)) => {
+                            tracing::info!("[SPOTIFY] Autorisation demandee par un plugin, identifiants enregistres");
+                            if let Some(s) = &spotify_clone {
+                                s.set_client_credentials(id.clone(), secret).await;
+                            }
+                            let auth_url = format!(
+                                "https://accounts.spotify.com/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}",
+                                id,
+                                urlencoding::encode("http://127.0.0.1:40510/callback"),
+                                urlencoding::encode(SPOTIFY_SCOPES)
+                            );
+                            format!("HTTP/1.1 302 Found\r\nLocation: {}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", auth_url)
+                        }
+                        _ => {
+                            tracing::warn!("[SPOTIFY] Autorisation demandee sans clientId/clientSecret");
+                            let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret.</p></div></body></html>";
+                            format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
+                        }
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                    return;
+                }
+
+                if request.starts_with("GET /callback") {
+                    tracing::info!("[SPOTIFY] Callback HTTP recu sur le serveur");
+                    if let Some(code_start) = request.find("code=") {
+                        let code = request[code_start + 5..].split_whitespace().next().unwrap_or("");
+                        let code = code.split('&').next().unwrap_or(code);
+                        tracing::info!("[SPOTIFY] Code d'autorisation extrait, diffuse a l'application");
+                        let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
+
+                        // Le serveur echange lui-meme le code. L'application le
+                        // fait aussi de son cote quand elle est ouverte, mais un
+                        // plugin StreamDock peut declencher le flux sans elle :
+                        // l'echange ne doit pas dependre de sa presence.
+                        if let Some(s) = &spotify_clone {
+                            match s.exchange_code(code.to_string()).await {
+                                Ok(_) => tracing::info!("[SPOTIFY] Echange du code reussi cote serveur, jetons enregistres"),
+                                Err(e) => tracing::warn!("[SPOTIFY] Echange du code refuse cote serveur : {}", e),
+                            }
+                        }
+
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        let mut stream = stream;
+                        let mut drop_buf = [0; 4096];
+                        let _ = stream.read(&mut drop_buf).await; // Consume the incoming HTTP request headers to prevent TCP RST on close
+                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Spotify Connected!</h1><p>You can close this window now.</p></div></body></html>";
+                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
+                    tracing::warn!("[SPOTIFY] Callback recu sans parametre code");
+                }
+            }
+            handle_connection(stream, sender_clone, spotify_clone, discord_clone, hue_clone, twitch_clone, db_clone, is_lol_enabled_clone, is_auto_accept_enabled_clone).await;
+        });
+    }
+}
+
 /// Vrai si l'origine designe la machine locale. Couvre la webview Tauri, qui
-/// se presente sous http://tauri.localhost sur Windows.
+/// se presente sous http://tauri.localhost sur Windows, et les plugins
+/// StreamDock, charges depuis des fichiers locaux.
 fn is_local_origin(origin: &str) -> bool {
+    let lower = origin.trim().to_ascii_lowercase();
+
+    // Les plugins StreamDock s'annoncent "file://" : leur interface est un
+    // fichier HTML local, donc un programme local. Une page web distante ne
+    // peut pas presenter cette origine, le navigateur ne l'autorise pas.
+    if lower == "file://" || lower.starts_with("file:") {
+        return true;
+    }
+
+    // "null" est volontairement refuse : une page distante dans une iframe
+    // bac a sable l'envoie aussi, ce n'est donc pas une preuve de localite.
+
     let host = origin
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -104,6 +240,20 @@ fn is_local_origin(origin: &str) -> bool {
 #[cfg(test)]
 mod origin_tests {
     use super::is_local_origin;
+
+    #[test]
+    fn accepte_les_plugins_streamdock() {
+        // Leur interface est un fichier HTML local. Ce cas manquait, et tous
+        // les plugins se retrouvaient refuses.
+        assert!(is_local_origin("file://"));
+        assert!(is_local_origin("file:///C:/Users/x/plugin/index.html"));
+    }
+
+    #[test]
+    fn refuse_une_origine_nulle() {
+        // Une page distante dans une iframe bac a sable envoie aussi "null".
+        assert!(!is_local_origin("null"));
+    }
 
     #[test]
     fn accepte_les_clients_legitimes() {
