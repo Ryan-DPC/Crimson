@@ -429,12 +429,25 @@ pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client
                     "client_id": client_id,
                     "client_secret": client_secret
                 }).to_string();
-                match ws_stream.send(Message::Text(msg.into())).await {
-                    Ok(_) => log_to_launch_file(&_app, "[SPOTIFY] Echange reussi, identifiants transmis au serveur"),
-                    Err(e) => {
-                        log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais transmission au serveur impossible : {}", e));
-                        return Err(format!("Serveur local injoignable : {}", e));
-                    }
+                if let Err(e) = ws_stream.send(Message::Text(msg.into())).await {
+                    log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais transmission au serveur impossible : {}", e));
+                    return Err(format!("Serveur local injoignable : {}", e));
+                }
+
+                // Fermeture negociee, et non abandon de la connexion. Le serveur
+                // pousse plusieurs etats initiaux avant de lire : si la socket
+                // est deja fermee, ces ecritures echouent et la trame recue est
+                // perdue avec elles. Attendre la reponse de fermeture garantit
+                // qu'il a lu nos trames, donc traite SPOTIFY_AUTH.
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    ws_stream.close(None),
+                )
+                .await
+                {
+                    Ok(Ok(())) => log_to_launch_file(&_app, "[SPOTIFY] Echange reussi, identifiants transmis au serveur"),
+                    Ok(Err(e)) => log_to_launch_file(&_app, &format!("[SPOTIFY] Identifiants envoyes, fermeture anormale : {}", e)),
+                    Err(_) => log_to_launch_file(&_app, "[SPOTIFY] Identifiants envoyes, le serveur n'a pas confirme la fermeture en 5 s"),
                 }
             }
             Err(e) => {

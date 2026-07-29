@@ -175,12 +175,26 @@
         const errorMessage = document.querySelector("#errorMessage");
         $lang = window.opener.$lang;
 
+        // Sans repli, une cle absente de $lang produisait litteralement la
+        // chaine "undefined" : tous les libelles de cette page etaient remplaces
+        // par ce mot. On garde desormais le texte d'origine.
+        const t = (key) => {
+            const value = $lang && $lang[key];
+            return (typeof value === 'string' && value) ? value : key;
+        };
+
+        // 40510 est le serveur Crimson. Le plugin d'origine visait 26433, un
+        // composant Mirabox qui n'existe pas dans cette installation : la page
+        // d'autorisation n'aboutissait donc jamais.
         document.querySelector("#authorizeBtn").addEventListener('click', (e) => {
-            if (clientId.value && clientSecret.value) {
-                $websocket.openUrl(`http://127.0.0.1:26433/authorization?clientId=${clientId.value}&clientSecret=${clientSecret.value}`);
+            if (clientId.value.trim() && clientSecret.value.trim()) {
+                const url = 'http://127.0.0.1:40510/authorization'
+                    + '?clientId=' + encodeURIComponent(clientId.value.trim())
+                    + '&clientSecret=' + encodeURIComponent(clientSecret.value.trim());
+                $websocket.openUrl(url);
                 window.close();
             } else {
-                errorMessage.textContent = $lang["Please fill in Client ID and Client Secret"];
+                errorMessage.textContent = t("Please fill in Client ID and Client Secret");
             }
         });
 
@@ -197,11 +211,11 @@
             return e.data.trim() && NodeFilter.FILTER_ACCEPT;
         });
         while (walker.nextNode()) {
-            walker.currentNode.data = $lang[walker.currentNode.data];
+            walker.currentNode.data = t(walker.currentNode.data);
         }
         const translate = item => {
             if (item.placeholder?.trim()) {
-                item.placeholder = $lang[item.placeholder];
+                item.placeholder = t(item.placeholder);
             }
         };
         document.querySelectorAll('input').forEach(translate);
