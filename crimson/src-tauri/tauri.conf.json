@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CRIMSONS",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "identifier": "com.laoy.crimons",
   "build": {
     "frontendDist": "../dist",
