@@ -30,6 +30,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::write(path, &msg);
     }));
 
+    // Un binaire de developpement ne doit jamais tourner en dehors du
+    // developpement. Sans ce garde-fou il suffisait qu'il tourne au moment
+    // d'une extinction : Windows le restaurait a la session suivante, il
+    // prenait le port 40510 avant l'installation reelle, et le mutex
+    // Global\crimson_server_v2_lock empechait ensuite le vrai serveur de
+    // demarrer. Le tout sans la moindre erreur visible.
+    if cfg!(debug_assertions) && std::env::var("CRIMSON_DEV").as_deref() != Ok("1") {
+        tracing::warn!(
+            "Build de developpement lance hors contexte de developpement : arret. \
+             Definissez CRIMSON_DEV=1 pour l'executer volontairement."
+        );
+        return Ok(());
+    }
+
     tracing::info!("--- SERVER'S STARTUP ---");
 
     let mut is_streamdock_plugin = false;

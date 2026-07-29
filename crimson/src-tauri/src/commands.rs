@@ -233,6 +233,13 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
 
             let mut cmd = std::process::Command::new(&p);
             cmd.arg("--service").arg(service_name);
+            // Le serveur en build de developpement refuse de demarrer sans ce
+            // signal, pour ne pas etre ressuscite par la restauration de
+            // session Windows. Une application de developpement autorise donc
+            // explicitement son propre sidecar.
+            if cfg!(debug_assertions) {
+                cmd.env("CRIMSON_DEV", "1");
+            }
             cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
             if let Some(parent) = p.parent() { cmd.current_dir(parent); }
             
@@ -252,6 +259,9 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
                     // Fallback to spawning without CREATE_BREAKAWAY_FROM_JOB in case parent is in a restricted Job Object
                     let mut cmd2 = std::process::Command::new(&p);
                     cmd2.arg("--service").arg(service_name);
+                    if cfg!(debug_assertions) {
+                        cmd2.env("CRIMSON_DEV", "1");
+                    }
                     cmd2.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
                     if let Some(parent) = p.parent() { cmd2.current_dir(parent); }
                     
@@ -362,6 +372,18 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 }
 #[tauri::command]
 pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client_id: String, client_secret: String) -> Result<(), String> {
+    // Journalise l'empreinte des identifiants utilises, jamais leur valeur.
+    // Sans cette trace, un echec d'echange etait invisible : l'erreur partait
+    // dans un console.error d'une webview de release, que personne ne lit.
+    log_to_launch_file(
+        &_app,
+        &format!(
+            "[SPOTIFY] Echange demarre - client_id {}..., secret {} caracteres finissant par {}",
+            client_id.chars().take(8).collect::<String>(),
+            client_secret.len(),
+            client_secret.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()
+        ),
+    );
     let client = reqwest::Client::new();
     let auth = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, format!("{}:{}", client_id, client_secret));
     
@@ -389,24 +411,47 @@ pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client
         use futures_util::SinkExt;
         use serde_json::json;
 
-        let url = "ws://127.0.0.1:40510";
-        if let Ok((mut ws_stream, _)) = connect_async(url).await {
-            let msg = json!({
-                "type": "SPOTIFY_AUTH",
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "expires_in": expires_in,
-                // Transmis au serveur pour qu'il puisse rafraichir le jeton
-                // plus tard : le rafraichissement exige l'authentification
-                // Basic client_id:client_secret.
-                "client_id": client_id,
-                "client_secret": client_secret
-            }).to_string();
-            let _ = ws_stream.send(Message::Text(msg.into())).await;
+        // Presente le jeton local, comme tout autre client du serveur.
+        let url = match crimson_server::auth::read_token() {
+            Some(t) if !t.is_empty() => format!("ws://127.0.0.1:40510/?token={}", t),
+            _ => "ws://127.0.0.1:40510".to_string(),
+        };
+        match connect_async(&url).await {
+            Ok((mut ws_stream, _)) => {
+                let msg = json!({
+                    "type": "SPOTIFY_AUTH",
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_in": expires_in,
+                    // Transmis au serveur pour qu'il puisse rafraichir le jeton
+                    // plus tard : le rafraichissement exige l'authentification
+                    // Basic client_id:client_secret.
+                    "client_id": client_id,
+                    "client_secret": client_secret
+                }).to_string();
+                match ws_stream.send(Message::Text(msg.into())).await {
+                    Ok(_) => log_to_launch_file(&_app, "[SPOTIFY] Echange reussi, identifiants transmis au serveur"),
+                    Err(e) => {
+                        log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais transmission au serveur impossible : {}", e));
+                        return Err(format!("Serveur local injoignable : {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                // Sans cette transmission le serveur ne peut pas rafraichir le
+                // jeton : l'echange serait perdu au bout d'une heure.
+                log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais connexion au serveur refusee : {}", e));
+                return Err(format!("Serveur local injoignable : {}", e));
+            }
         }
         Ok(())
     } else {
-        Err(format!("Spotify error: {}", resp.status()))
+        // Le corps de la reponse contient la raison exacte du refus
+        // (invalid_client, invalid_grant, redirect_uri_mismatch...).
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_else(|_| "<corps illisible>".to_string());
+        log_to_launch_file(&_app, &format!("[SPOTIFY] Echange refuse - HTTP {} - {}", status, body));
+        Err(format!("Spotify a refuse l'echange (HTTP {}) : {}", status, body))
     }
 }
 
