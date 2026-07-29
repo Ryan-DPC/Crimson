@@ -22,7 +22,11 @@ $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 Write-Host "Project root resolved to: $ProjectRoot" -ForegroundColor Cyan
 Set-Location $ProjectRoot
 
+# Pose nom et icone sur le sidecar distribue. Volontairement absent du build
+# Tauri : la ressource VERSION y entrerait en conflit avec celle de l'app.
+$env:CRIMSON_EMBED_SERVER_RESOURCE = "1"
 Invoke-Step "Building crimson-server release..." { cargo build --release -p crimson-server }
+Remove-Item Env:\CRIMSON_EMBED_SERVER_RESOURCE
 
 Write-Host "Copying sidecar..." -ForegroundColor Cyan
 $sidecarDir = Join-Path $ProjectRoot "crimson\src-tauri\bin"

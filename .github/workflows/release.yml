@@ -125,7 +125,11 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Build Sidecar
+        # Pose nom et icone sur le sidecar. Absent du build Tauri plus bas :
+        # la ressource VERSION y entrerait en conflit avec celle de l'app.
         run: cargo build -p crimson-server --release
+        env:
+          CRIMSON_EMBED_SERVER_RESOURCE: '1'
 
       - name: Prepare Sidecar
         shell: pwsh
