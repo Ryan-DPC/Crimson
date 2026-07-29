@@ -35,9 +35,32 @@ fn embed_supabase_config() {
 }
 
 fn main() {
+    // Declarer un rerun-if-changed desactive le comportement par defaut, qui
+    // relance le script des qu'un fichier du paquet bouge. Il faut donc lister
+    // explicitement ce qui doit le reveiller — dont CARGO_PRIMARY_PACKAGE,
+    // sans quoi la sortie mise en cache lors d'une compilation en dependance
+    // serait reutilisee et le binaire perdrait nom et icone.
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=CRIMSON_EMBED_SERVER_RESOURCE");
+
     embed_supabase_config();
 
-    if env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+    // winres emet `cargo:rustc-link-lib=dylib=resource`, une directive globale
+    // qui s'applique a tout ce qui lie cette bibliotheque. L'application Tauri
+    // en dependant, elle heritait de cette ressource VERSION en plus de la
+    // sienne, et l'editeur de liens refusait :
+    //   CVT1100: duplicate resource. type:VERSION
+    //
+    // La ressource n'est donc posee que sur demande explicite. Les deux chemins
+    // qui produisent le sidecar distribue la reclament : scripts/build_release.ps1
+    // et l'etape Build Sidecar de la CI. Le build de l'application Tauri ne la
+    // demande pas, et n'entre donc plus en conflit.
+    //
+    // Sans cette variable, crimson-server.exe se compile sans nom ni icone :
+    // c'est voulu, pour un binaire de developpement.
+    let embed_resource = env::var("CRIMSON_EMBED_SERVER_RESOURCE").as_deref() == Ok("1");
+
+    if embed_resource && env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         let mut res = winres::WindowsResource::new();
         
         // Find the project root icon path
