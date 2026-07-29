@@ -151,16 +151,45 @@ async fn handle_connection(
     // clients natifs (application Tauri, plugins StreamDock) n'en envoient pas.
     let origin_check = |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                         res: tokio_tungstenite::tungstenite::handshake::server::Response| {
+        let forbid = |motif: &str| {
+            let mut err = tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(
+                Some(motif.to_string()),
+            );
+            *err.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN;
+            err
+        };
+
         if let Some(origin) = req.headers().get("origin").and_then(|v| v.to_str().ok()) {
             if !is_local_origin(origin) {
                 tracing::warn!("[WS] Connexion refusee, origine externe : {}", origin);
-                let mut err = tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(
-                    Some("Origin not allowed".to_string()),
-                );
-                *err.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN;
-                return Err(err);
+                return Err(forbid("Origin not allowed"));
             }
         }
+
+        // Jeton passe en parametre d'URL : l'API WebSocket des navigateurs ne
+        // permet pas d'en-tetes personnalises, et les plugins StreamDock sont
+        // dans ce cas.
+        let token = req
+            .uri()
+            .query()
+            .and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=')?;
+                    if k == "token" { Some(v.to_string()) } else { None }
+                })
+            })
+            .unwrap_or_default();
+
+        if !crate::auth::verify(&token) {
+            if crate::auth::strict_mode() {
+                tracing::warn!("[WS] Connexion refusee, jeton absent ou invalide");
+                return Err(forbid("Invalid token"));
+            }
+            // Phase de transition : on signale sans rompre, le temps que tous
+            // les clients soient adaptes. CRIMSON_STRICT_AUTH=1 pour refuser.
+            tracing::warn!("[WS] Connexion sans jeton valide acceptee (mode non strict)");
+        }
+
         Ok(res)
     };
 

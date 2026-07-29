@@ -6,7 +6,12 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 pub async fn start_proxy_bridge(sd_port: u16, sd_uuid: String, sd_reg_evt: String) {
-    let backend_url = "ws://127.0.0.1:40510";
+    // Le pont est un client comme un autre : il presente le jeton local.
+    let backend_url = match crate::auth::current_token() {
+        Some(t) if !t.is_empty() => format!("ws://127.0.0.1:40510/?token={}", t),
+        _ => "ws://127.0.0.1:40510".to_string(),
+    };
+    let backend_url = backend_url.as_str();
     let hardware_url = format!("ws://127.0.0.1:{}", sd_port);
     let current_pid = std::process::id();
     
