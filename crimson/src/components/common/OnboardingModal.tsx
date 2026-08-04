@@ -33,8 +33,10 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
 
         await updateSetting('spotifyClientId', clientId);
         await updateSetting('spotifyClientSecret', clientSecret);
-        localStorage.setItem('spotify_client_id', clientId);
-        localStorage.setItem('spotify_client_secret', clientSecret);
+        try {
+            localStorage.removeItem('spotify_client_secret');
+            localStorage.removeItem('spotify_client_id');
+        } catch { /* ignore */ }
 
         const redirectUri = 'http://127.0.0.1:40510/callback';
         const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';

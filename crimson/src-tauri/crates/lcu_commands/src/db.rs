@@ -22,15 +22,11 @@ pub struct DbMatch {
 }
 
 pub fn get_db_path(_app: &AppHandle) -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let path = PathBuf::from(appdata).join("com.laoy.crimson");
-        if !path.exists() {
-            let _ = std::fs::create_dir_all(&path);
-        }
-        path.join("crimson.db")
-    } else {
-        PathBuf::from("./crimson.db")
-    }
+    // Reuse the same AppData resolution (incl. legacy migration) as data.json.
+    crate::storage::get_data_path_from_env()
+        .parent()
+        .map(|p| p.join("crimson.db"))
+        .unwrap_or_else(|| PathBuf::from("./crimson.db"))
 }
 
 pub fn create_pool(app: &AppHandle) -> DbPool {

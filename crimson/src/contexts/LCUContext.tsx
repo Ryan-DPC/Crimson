@@ -533,7 +533,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         ws.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
-            handleWsMessage(msg, ws);
+            handleWsMessage(msg);
         };
 
         ws.onclose = () => {
@@ -557,15 +557,19 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const ws = socketsRef.current[40510];
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-        // Seul le jeton part : le serveur connait deja son point de
-        // verification, le lui laisser choisir serait la faille.
+        // Seuls les jetons partent : le serveur connait deja son point de
+        // verification, le lui laisser choisir serait la faille. Le jeton de
+        // rafraichissement lui permet de se reauthentifier seul au demarrage,
+        // sans quoi toutes les actions StreamDock etaient refusees tant que
+        // cette application n'etait pas ouverte.
         ws.send(JSON.stringify({
             type: 'AUTH_SESSION',
             access_token: session?.access_token ?? null,
+            refresh_token: session?.refresh_token ?? null,
         }));
     }, [session, authLoading, serverConnected]);
 
-    const handleWsMessage = async (msg: any, ws: WebSocket) => {
+    const handleWsMessage = async (msg: any) => {
         if (msg.type === 'GAME_PHASE') {
             setGamePhase(msg.phase);
         } else if (msg.type === 'CHAMP_SELECT_UPDATE') {
@@ -604,21 +608,24 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else if (msg.type === 'DISCORD_STATE') {
             setDiscordState(msg.data);
             setDiscordConnected(msg.data?.connected || false);
-        } else if (msg.type === 'TOGGLE_AUTO_ACCEPT') {
+        } else if (msg.type === 'AUTO_ACCEPT_STATE') {
+            // Sidecar already mutated disk — refresh UI only (do not re-toggle).
             const d = await invoke<any>('get_app_data');
-            d.autoAccept = !d.autoAccept;
-            await invoke('set_app_data', { data: d });
+            d.autoAccept = !!msg.enabled;
             setAppData(d);
-            ws.send(JSON.stringify({ type: 'AUTO_ACCEPT_STATE', enabled: d.autoAccept }));
-        } else if (msg.type === 'TOGGLE_AUTO_BAN') {
+        } else if (msg.type === 'AUTO_BAN_STATE') {
             const d = await invoke<any>('get_app_data');
-            d.autoBan = d.autoBan ? null : (d.rememberedAutoBan || null);
-            await invoke('set_app_data', { data: d });
+            const id = msg.championId === null || msg.championId === 0 ? null : msg.championId;
+            d.autoBan = id;
             setAppData(d);
-        } else if (msg.type === 'TOGGLE_AUTO_PICK') {
+        } else if (msg.type === 'AUTO_PICK_STATE') {
             const d = await invoke<any>('get_app_data');
-            d.autoPick = d.autoPick ? null : (d.rememberedAutoPick || null);
-            await invoke('set_app_data', { data: d });
+            const id = msg.championId === null || msg.championId === 0 ? null : msg.championId;
+            d.autoPick = id;
+            setAppData(d);
+        } else if (msg.type === 'TOGGLE_AUTO_ACCEPT' || msg.type === 'TOGGLE_AUTO_BAN' || msg.type === 'TOGGLE_AUTO_PICK') {
+            // Legacy broadcasts: reload from disk (server is source of truth for StreamDeck toggles).
+            const d = await invoke<any>('get_app_data');
             setAppData(d);
         } else if (msg.type === 'INJECT_BUILD') {
             const idx = (msg.index || 1) - 1;
@@ -627,31 +634,12 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 doImport(build, idx);
             }
         } else if (msg.type === 'SPOTIFY_CALLBACK_CODE') {
-            // localStorage est renseigne au moment de la connexion, mais il peut
-            // etre vide (nouvelle installation, cache du webview purge) : on
-            // retombe alors sur les identifiants persistes dans data.json.
-            let clientId = localStorage.getItem('spotify_client_id');
-            let clientSecret = localStorage.getItem('spotify_client_secret');
-            if (!clientId || !clientSecret) {
-                try {
-                    const stored = await invoke<any>('get_app_data');
-                    clientId = stored?.spotifyClientId || null;
-                    clientSecret = stored?.spotifyClientSecret || null;
-                } catch (e) {
-                    console.error("Failed to read stored Spotify credentials", e);
-                }
-            }
-            if (clientId && clientSecret) {
-                invoke('exchange_spotify_token', {
-                    code: msg.code,
-                    clientId,
-                    clientSecret
-                }).then(() => {
-                    console.log("Spotify Connected Successfully");
-                }).catch(console.error);
-            } else {
-                console.error("Identifiants Spotify absents : renseignez-les dans les paramètres avant de vous connecter.");
-            }
+            // Credentials stay in data.json only — never in localStorage / query strings.
+            invoke('exchange_spotify_token', {
+                code: msg.code
+            }).then(() => {
+                console.log("Spotify Connected Successfully");
+            }).catch(console.error);
         }
     };
 
@@ -874,16 +862,26 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const d = await invoke<any>('get_app_data');
         d.autoBan = d.autoBan === id ? null : id;
         if (d.autoBan === id && d.autoPick === id) d.autoPick = null;
+        if (d.autoBan) d.rememberedAutoBan = d.autoBan;
         await invoke('set_app_data', { data: d });
         setAppData(d);
+        const ws = socketsRef.current[40510];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'AUTO_BAN_STATE', championId: d.autoBan }));
+        }
     };
 
     const toggleAutoPick = async (id: number) => {
         const d = await invoke<any>('get_app_data');
         d.autoPick = d.autoPick === id ? null : id;
         if (d.autoPick === id && d.autoBan === id) d.autoBan = null;
+        if (d.autoPick) d.rememberedAutoPick = d.autoPick;
         await invoke('set_app_data', { data: d });
         setAppData(d);
+        const ws = socketsRef.current[40510];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'AUTO_PICK_STATE', championId: d.autoPick }));
+        }
     };
 
     const updateGeminiKey = async (key: string) => {
@@ -898,6 +896,13 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         d[key] = value;
         await invoke('set_app_data', { data: d });
         setAppData(d);
+        // Keep sidecar AtomicBool / disk in sync for auto-accept.
+        if (key === 'autoAccept') {
+            const ws = socketsRef.current[40510];
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'SET_AUTO_ACCEPT', enabled: !!value }));
+            }
+        }
     };
 
     const doImport = async (build: RuneBuild, index: number) => {
@@ -950,9 +955,17 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const toggleSimMode = () => setSimMode(prev => !prev);
 
     const loginSpotify = async (clientId: string, clientSecret: string) => {
-        // Save credentials for the callback handler
-        localStorage.setItem('spotify_client_id', clientId);
-        localStorage.setItem('spotify_client_secret', clientSecret);
+        // Persist to data.json and push to the sidecar — never localStorage.
+        await updateSetting('spotifyClientId', clientId);
+        await updateSetting('spotifyClientSecret', clientSecret);
+        const ws = socketsRef.current[40510];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'SPOTIFY_CREDENTIALS',
+                client_id: clientId,
+                client_secret: clientSecret
+            }));
+        }
 
         const redirectUri = 'http://127.0.0.1:40510/callback';
         const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
@@ -960,9 +973,6 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         
         const { open } = await import('@tauri-apps/plugin-shell');
         await open(authUrl);
-        
-        // Note: The callback handling should happen in the Crimson server or via a custom protocol.
-        // For simplicity, we'll suggest the user to paste the code or use a automated listener.
     };
 
     const spotifyCommand = (endpoint: string, params?: any) => {
@@ -999,7 +1009,11 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'TOGGLE_PLUGIN', plugin, enabled }));
             } else {
-                const tempWs = new WebSocket('ws://127.0.0.1:40510/');
+                let token = await invoke<string | null>('crimson_get_auth_token').catch(() => null);
+                const url = token
+                    ? `ws://127.0.0.1:40510/?token=${encodeURIComponent(token)}`
+                    : 'ws://127.0.0.1:40510/';
+                const tempWs = new WebSocket(url);
                 tempWs.onopen = () => {
                     tempWs.send(JSON.stringify({ type: 'TOGGLE_PLUGIN', plugin, enabled }));
                     tempWs.close();

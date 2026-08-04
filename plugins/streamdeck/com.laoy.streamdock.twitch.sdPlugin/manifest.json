@@ -2,7 +2,7 @@
   "Actions": [
     {
       "Icon": "static/icon/twitch_chat@2x.png",
-      "Name": "Send Chat Message",
+      "Name": "Send Chat Message (Soon)",
       "Controllers": ["Keypad"],
       "States": [
         {
@@ -14,7 +14,7 @@
     },
     {
       "Icon": "static/icon/twitch_ad@2x.png",
-      "Name": "Run Ad",
+      "Name": "Run Ad (Soon)",
       "Controllers": ["Keypad"],
       "States": [
         {
@@ -26,7 +26,7 @@
     },
     {
       "Icon": "static/icon/twitch_viewers@2x.png",
-      "Name": "Viewer Count",
+      "Name": "Viewer Count (Soon)",
       "Controllers": ["Information"],
       "States": [
         {
@@ -39,10 +39,10 @@
     }
   ],
   "Author": "Laoy",
-  "Description": "Twitch Streamer Tools",
+  "Description": "Twitch Streamer Tools (Coming Soon)",
   "Icon": "static/icon/twitch_chat@2x.png",
-  "Name": "Twitch",
-  "Category": "Twitch",
+  "Name": "Twitch (Soon)",
+  "Category": "Twitch (Soon)",
   "CategoryIcon": "static/icon/twitch_chat@2x.png",
   "Version": "3.1.0",
   "SDKVersion": 1,

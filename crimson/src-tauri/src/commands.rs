@@ -173,8 +173,7 @@ pub fn crimson_get_actual_server_path(app: tauri::AppHandle) -> Option<String> {
 #[tauri::command]
 pub async fn crimson_start_server(app: tauri::AppHandle) -> Result<(), String> {
     log_to_launch_file(&app, "crimson_start_server command invoked by user");
-    crimson_spawn_server(app).await;
-    Ok(())
+    crimson_spawn_server(app).await
 }
 
 #[tauri::command]
@@ -207,13 +206,15 @@ pub async fn crimson_stop_server(app: tauri::AppHandle) -> Result<(), String> {
 pub async fn crimson_restart_server(app: tauri::AppHandle) -> Result<(), String> {
     log_to_launch_file(&app, "crimson_restart_server command invoked by user");
     let _ = crimson_stop_server(app.clone()).await;
-    crimson_spawn_server(app).await;
-    Ok(())
+    // Brief pause so the mutex / port are released before re-spawn.
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    crimson_spawn_server(app).await
 }
 
-pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
+pub async fn crimson_spawn_server(handle: tauri::AppHandle) -> Result<(), String> {
     let services = vec!["main"];
     log_to_launch_file(&handle, "crimson_spawn_server started");
+    let mut last_error: Option<String> = None;
     
     for service_name in services {
         let port = 40510;
@@ -244,7 +245,7 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
             if let Some(parent) = p.parent() { cmd.current_dir(parent); }
             
             log_to_launch_file(&handle, &format!("Attempting first-stage spawn of service {} with breakaway flag...", service_name));
-            match cmd.spawn() {
+            let spawn_result = match cmd.spawn() {
                 Ok(child) => {
                     log_to_launch_file(&handle, &format!("SUCCESS: Spanned service {} (first stage) from {:?}", service_name, p));
                     if service_name == "main" {
@@ -252,6 +253,7 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
                         let mut lock = sidecar_state.0.lock().await;
                         *lock = Some(child);
                     }
+                    Ok(())
                 },
                 Err(e) => {
                     log_to_launch_file(&handle, &format!("WARNING: First-stage spawn failed: {}. Retrying without CREATE_BREAKAWAY_FROM_JOB...", e));
@@ -273,16 +275,52 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) {
                                 let mut lock = sidecar_state.0.lock().await;
                                 *lock = Some(child2);
                             }
+                            Ok(())
                         },
                         Err(e2) => {
-                            log_to_launch_file(&handle, &format!("ERROR: Spawn completely failed at both stages. Final error: {}", e2));
+                            let msg = format!("Spawn completely failed at both stages. Final error: {}", e2);
+                            log_to_launch_file(&handle, &format!("ERROR: {}", msg));
+                            Err(msg)
                         }
                     }
                 }
+            };
+
+            if let Err(e) = spawn_result {
+                last_error = Some(e);
+                continue;
+            }
+
+            // Spawn can report success while a debug binary exits immediately
+            // (missing CRIMSON_DEV) or crashes before bind. Confirm the port.
+            let mut up = false;
+            for _ in 0..25 {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+                    up = true;
+                    break;
+                }
+            }
+            if up {
+                log_to_launch_file(&handle, &format!("Service {} is listening on port {}.", service_name, port));
+            } else {
+                let msg = format!(
+                    "Sidecar spawned from {:?} but port {} never opened (debug build needs CRIMSON_DEV=1, or binary crashed — see AppData launch_debug / crimson-server.log)",
+                    p, port
+                );
+                log_to_launch_file(&handle, &format!("ERROR: {}", msg));
+                last_error = Some(msg);
             }
         } else {
-            log_to_launch_file(&handle, "ERROR: No server executable path was found.");
+            let msg = "No server executable path was found (expected crimson-server.exe or crimson-server-x86_64-pc-windows-msvc.exe next to the app or in src-tauri/bin).".to_string();
+            log_to_launch_file(&handle, &format!("ERROR: {}", msg));
+            last_error = Some(msg);
         }
+    }
+
+    match last_error {
+        Some(e) => Err(e),
+        None => Ok(()),
     }
 }
 
@@ -325,7 +363,17 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
                 search_paths.push(parent.join("target/debug"));
                 search_paths.push(parent.join("cargo-target-hotfix2/release"));
                 search_paths.push(parent.join("cargo-target-hotfix/release"));
+                // Workspace layout: target/{debug,release} and crimson/src-tauri/bin
+                if let Some(repo) = parent.parent() {
+                    search_paths.push(repo.join("target/release"));
+                    search_paths.push(repo.join("target/debug"));
+                    search_paths.push(repo.join("crimson/src-tauri/bin"));
+                    search_paths.push(repo.join("src-tauri/bin"));
+                }
             }
+            // Direct sibling of the exe (Tauri copies externalBin here on dev/build)
+            search_paths.push(exe_dir.to_path_buf());
+            search_paths.push(exe_dir.join("bin"));
         }
     }
     
@@ -371,17 +419,33 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     None
 }
 #[tauri::command]
-pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client_id: String, client_secret: String) -> Result<(), String> {
-    // Journalise l'empreinte des identifiants utilises, jamais leur valeur.
-    // Sans cette trace, un echec d'echange etait invisible : l'erreur partait
-    // dans un console.error d'une webview de release, que personne ne lit.
+pub async fn exchange_spotify_token(app: tauri::AppHandle, code: String) -> Result<(), String> {
+    // Credentials live only in data.json / the sidecar — never passed from the webview.
+    let data = storage::load_data(&app);
+    let client_id = data
+        .other
+        .get("spotifyClientId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let client_secret = data
+        .other
+        .get("spotifyClientSecret")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if client_id.is_empty() || client_secret.is_empty() {
+        log_to_launch_file(&app, "[SPOTIFY] Echange impossible - identifiants absents de data.json");
+        return Err("Identifiants Spotify absents. Renseignez-les dans les parametres.".into());
+    }
+
     log_to_launch_file(
-        &_app,
+        &app,
         &format!(
-            "[SPOTIFY] Echange demarre - client_id {}..., secret {} caracteres finissant par {}",
-            client_id.chars().take(8).collect::<String>(),
-            client_secret.len(),
-            client_secret.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()
+            "[SPOTIFY] Echange demarre - client_id len={}, secret len={} (valeurs non journalisees)",
+            client_id.len(),
+            client_secret.len()
         ),
     );
     let client = reqwest::Client::new();
@@ -430,7 +494,7 @@ pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client
                     "client_secret": client_secret
                 }).to_string();
                 if let Err(e) = ws_stream.send(Message::Text(msg.into())).await {
-                    log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais transmission au serveur impossible : {}", e));
+                    log_to_launch_file(&app, &format!("[SPOTIFY] Echange reussi mais transmission au serveur impossible : {}", e));
                     return Err(format!("Serveur local injoignable : {}", e));
                 }
 
@@ -445,15 +509,15 @@ pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client
                 )
                 .await
                 {
-                    Ok(Ok(())) => log_to_launch_file(&_app, "[SPOTIFY] Echange reussi, identifiants transmis au serveur"),
-                    Ok(Err(e)) => log_to_launch_file(&_app, &format!("[SPOTIFY] Identifiants envoyes, fermeture anormale : {}", e)),
-                    Err(_) => log_to_launch_file(&_app, "[SPOTIFY] Identifiants envoyes, le serveur n'a pas confirme la fermeture en 5 s"),
+                    Ok(Ok(())) => log_to_launch_file(&app, "[SPOTIFY] Echange reussi, identifiants transmis au serveur"),
+                    Ok(Err(e)) => log_to_launch_file(&app, &format!("[SPOTIFY] Identifiants envoyes, fermeture anormale : {}", e)),
+                    Err(_) => log_to_launch_file(&app, "[SPOTIFY] Identifiants envoyes, le serveur n'a pas confirme la fermeture en 5 s"),
                 }
             }
             Err(e) => {
                 // Sans cette transmission le serveur ne peut pas rafraichir le
                 // jeton : l'echange serait perdu au bout d'une heure.
-                log_to_launch_file(&_app, &format!("[SPOTIFY] Echange reussi mais connexion au serveur refusee : {}", e));
+                log_to_launch_file(&app, &format!("[SPOTIFY] Echange reussi mais connexion au serveur refusee : {}", e));
                 return Err(format!("Serveur local injoignable : {}", e));
             }
         }
@@ -463,7 +527,7 @@ pub async fn exchange_spotify_token(_app: tauri::AppHandle, code: String, client
         // (invalid_client, invalid_grant, redirect_uri_mismatch...).
         let status = resp.status();
         let body = resp.text().await.unwrap_or_else(|_| "<corps illisible>".to_string());
-        log_to_launch_file(&_app, &format!("[SPOTIFY] Echange refuse - HTTP {} - {}", status, body));
+        log_to_launch_file(&app, &format!("[SPOTIFY] Echange refuse - HTTP {} - {}", status, body));
         Err(format!("Spotify a refuse l'echange (HTTP {}) : {}", status, body))
     }
 }

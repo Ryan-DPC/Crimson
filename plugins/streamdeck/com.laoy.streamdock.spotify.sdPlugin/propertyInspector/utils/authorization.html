@@ -186,13 +186,28 @@
         // 40510 est le serveur Crimson. Le plugin d'origine visait 26433, un
         // composant Mirabox qui n'existe pas dans cette installation : la page
         // d'autorisation n'aboutissait donc jamais.
-        document.querySelector("#authorizeBtn").addEventListener('click', (e) => {
+        document.querySelector("#authorizeBtn").addEventListener('click', async (e) => {
             if (clientId.value.trim() && clientSecret.value.trim()) {
-                const url = 'http://127.0.0.1:40510/authorization'
-                    + '?clientId=' + encodeURIComponent(clientId.value.trim())
-                    + '&clientSecret=' + encodeURIComponent(clientSecret.value.trim());
-                $websocket.openUrl(url);
-                window.close();
+                // POST credentials in the body — never put clientSecret in the URL query.
+                try {
+                    const resp = await fetch('http://127.0.0.1:40510/authorization', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            clientId: clientId.value.trim(),
+                            clientSecret: clientSecret.value.trim()
+                        })
+                    });
+                    const data = await resp.json();
+                    if (data && data.redirect) {
+                        $websocket.openUrl(data.redirect);
+                        window.close();
+                        return;
+                    }
+                    errorMessage.textContent = t("Please fill in Client ID and Client Secret");
+                } catch (err) {
+                    errorMessage.textContent = t("Please fill in Client ID and Client Secret");
+                }
             } else {
                 errorMessage.textContent = t("Please fill in Client ID and Client Secret");
             }

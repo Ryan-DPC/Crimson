@@ -29,7 +29,7 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "bin/crimson_server",
+          "name": "bin/crimson-server",
           "sidecar": true
         }
       ]

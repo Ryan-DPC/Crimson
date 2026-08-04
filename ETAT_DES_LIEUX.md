@@ -1,19 +1,72 @@
-# État des lieux - Bogues et Améliorations (Crimson v3.0.6)
+# État des lieux — tracker des problèmes connus (Crimsons v3.1.4)
 
-Suite au passage à la nouvelle architecture Monorepo sur le lecteur `F:`, voici la liste des problèmes identifiés qu'il nous reste à corriger. Ce fichier servira de point de référence pour nos prochaines sessions.
+| | |
+| --- | --- |
+| **Version suivie** | 3.1.4 |
+| **Identifiant canonique** | `com.laoy.crimsons` (AppData + `tauri.conf.json`) |
+| **Dernier audit doc** | 2026-08-01 (post-fix consolidation) |
+| **Rôle de ce fichier** | Liste honnête des bugs / dettes encore ouverts. Ne pas marquer « corrigé » sans vérification dans le code ou un test manuel. |
 
-## 1. Plugin Spotify - Clignotement du logo
-* **Symptôme :** Le plugin sur le Stream Deck clignote parfois en affichant un logo Spotify générique (blanc et vert) avant de revenir à l'image normale.
-* **Piste de résolution :** Lors de la synchronisation de l'état ou du rafraîchissement, le système pousse probablement une image par défaut ou subit une latence. Il faut vérifier la logique d'envoi d'images dans `streamdock.rs` et `ws.rs` pour éviter ce clignotement intermédiaire.
+Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `F:`.
 
-## 2. Plugin Spotify - Smart Shuffle (3ème état)
-* **Symptôme :** Le bouton Shuffle ne fonctionne pas lorsqu'on arrive sur le 3ème état (le "Smart Shuffle").
-* **Piste de résolution :** L'API de Spotify a une façon particulière de gérer le Smart Shuffle (souvent différent d'un simple booléen `true/false`). Il faut retrouver le correctif que nous avions identifié précédemment et l'appliquer dans la méthode de changement de Shuffle de `server/src/spotify.rs` ou la gestion du payload côté WebSocket.
+---
 
-## 3. League of Legends (LCU) - Auto-Accept et Pick & Ban
-* **Symptôme :** Les fonctionnalités d'Auto-Accept ne marchent plus. Les Picks et Bans peuvent être configurés sur l'interface web, mais ne s'exécutent pas dans le client League of Legends.
-* **Piste de résolution :** Avec la séparation du serveur de commandes et de l'application Tauri, la boucle d'écoute LCU (`lcu_commands/src/lcu.rs`) ne reçoit probablement plus correctement les mises à jour d'état du WebSocket. Il faut rétablir la communication entre l'état local (Tauri/Frontend) et la boucle d'exécution LCU.
+## Corrigé dans le code (à valider manuellement où indiqué)
 
-## 4. Frontend - Interface et CSS
-* **Symptôme :** Problèmes de design visuel, notamment des éléments qui se superposent (la section "Auto Selection" et la grille des champions sont trop à l'étroit).
-* **Piste de résolution :** Revoir les styles CSS (Tailwind ou CSS pur) dans les composants React concernés (ex: `AutoSelection.tsx`, `MatchHistory.tsx`, etc.) pour utiliser correctement Flexbox/Grid et s'assurer que l'interface est responsive et aérée.
+Ces points sont **présents dans le working tree** au 2026-08-01. Ce n’est pas une validation produit runtime sauf mention contraire.
+
+### Auth WebSocket + CSP
+* **Strict auth ON par défaut** (`server/src/auth.rs`) — `CRIMSON_STRICT_AUTH=0` / `false` / `off` pour désactiver.
+* Plugins StreamDock (Crimson, Spotify, Discord, …) lisent `%APPDATA%\com.laoy.crimsons\auth.token` et passent `?token=`.
+* Property Inspectors HTML **ne** ouvrent plus de WS non authentifié vers `:40510` (données PI via bridge StreamDeck).
+* CSP Tauri non-null (`crimson/src-tauri/tauri.conf.json`).
+* Capability sidecar alignée : `bin/crimson-server`.
+
+### LCU auto-accept / pick-ban
+* Ready-check sur état LCU **`InProgress`** (`server/src/automation.rs` + `service.rs`) ; tests unitaires ajoutés.
+* Sync `AtomicBool` ↔ `data.json` pour l’auto-accept (évite les courses UI ↔ boucle).
+* Une seule boucle automation : sidecar ; `lcu_commands::automation` est un no-op volontaire.
+* **Statut produit :** corrigé dans le code — **test manuel LoL encore requis** avant de clôturer côté utilisateur.
+
+### Spotify
+* Secrets retirés de `localStorage` / query d’authorization (persistés via `data.json` / sidecar).
+* Cycle shuffle Off → Standard → Smart (flag local) → Off ; **l’API Spotify ne peut pas activer Smart Shuffle** (limitation amont, documentée dans le code).
+* Déduplication d’images StreamDock (`push_image_if_changed` / refus des `setImage` vides) pour limiter le flash du logo générique.
+
+### Identité AppData
+* Canonique : **`com.laoy.crimsons`**.
+* Migration au démarrage Tauri depuis `com.laoy.crimson` et le typo `com.laoy.crimons`.
+
+### Hue / Twitch
+* Gated « coming soon » / `FEATURE_UNAVAILABLE` côté serveur ; UI Settings affiche « (Soon) ».
+
+### CI + doc
+* `.github/workflows/ci.yml` : ESLint (`continue-on-error`), `tsc -b`, Clippy + `cargo test` (Windows) pour `crimson-server` / `lcu_commands`.
+* README racine présent.
+
+---
+
+## Problèmes / limitations encore ouverts
+
+### 1. Smart Shuffle — limitation API Spotify (pas un bug Crimson)
+* **Symptôme :** le 3ᵉ état « Smart » est un flag UX local ; Spotify Web API ne propose que shuffle on/off.
+* **Statut :** cycle UI corrigé ; **impossible d’activer réellement Smart Shuffle** via l’API.
+
+### 2. Sécurité locale résiduelle — vol de jeton AppData
+* **Symptôme :** tout process du même user Windows peut lire `auth.token` / session Supabase sur disque.
+* **Statut :** attendu pour un serveur local ; le mode strict bloque les clients **sans** jeton, pas un attaquant local qui lit le fichier.
+
+### 3. Frontend — interface et CSS
+* **Symptôme :** superpositions / manque d’air (ex. Auto Selection vs grille de champions).
+* **Statut :** Ouvert (non traité dans cette vague de fixes).
+
+### 4. LCU — validation manuelle
+* Auto-accept / pick-ban : logique corrigée + tests unitaires, **pas encore confirmé en client LoL réel**.
+
+---
+
+## Dette outillage (hors produit)
+
+* ESLint frontend : ~100 erreurs historiques (surtout `@typescript-eslint/no-explicit-any`) — job CI **visible** mais `continue-on-error: true` (ne bloque pas la PR).
+* Clippy : warnings existants (ex. `dead_code` Discord) — Clippy sans `-D warnings`.
+* Couverture tests encore faible hors Origin WS / automation ready-check / entitlements ponctuels.

@@ -132,33 +132,93 @@ async fn accept_loop(
                 // Mirabox sur le port 26433, absent ici : le serveur prend le
                 // relais et mene le flux OAuth de bout en bout, sans exiger que
                 // l'application soit ouverte.
-                if request.starts_with("GET /authorization") {
+                // Secrets never travel in the query string. GET uses credentials
+                // already stored in data.json / spotify_cache; POST accepts a JSON
+                // body { clientId, clientSecret } from the property inspector.
+                if request.starts_with("OPTIONS /authorization") {
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                    let id = query_param(&request, "clientId");
-                    let secret = query_param(&request, "clientSecret");
                     let mut stream = stream;
                     let mut drop_buf = [0; 4096];
                     let _ = stream.read(&mut drop_buf).await;
+                    let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                    return;
+                }
+                if request.starts_with("GET /authorization") || request.starts_with("POST /authorization") {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let is_post = request.starts_with("POST ");
+                    let mut stream = stream;
+                    let mut drop_buf = [0; 8192];
+                    let n = stream.read(&mut drop_buf).await.unwrap_or(0);
+                    let raw = String::from_utf8_lossy(&drop_buf[..n]);
 
-                    let response = match (id, secret) {
-                        (Some(id), Some(secret)) => {
-                            tracing::info!("[SPOTIFY] Autorisation demandee par un plugin, identifiants enregistres");
-                            if let Some(s) = &spotify_clone {
-                                s.set_client_credentials(id.clone(), secret).await;
+                    let mut id = String::new();
+                    let mut secret = String::new();
+
+                    if is_post {
+                        if let Some(body) = raw.split("\r\n\r\n").nth(1) {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body.trim()) {
+                                id = json["clientId"].as_str()
+                                    .or_else(|| json["client_id"].as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                secret = json["clientSecret"].as_str()
+                                    .or_else(|| json["client_secret"].as_str())
+                                    .unwrap_or("")
+                                    .to_string();
                             }
-                            let auth_url = format!(
-                                "https://accounts.spotify.com/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}",
-                                id,
-                                urlencoding::encode("http://127.0.0.1:40510/callback"),
-                                urlencoding::encode(SPOTIFY_SCOPES)
-                            );
+                        }
+                    }
+
+                    // Prefer disk-backed credentials; never read clientSecret from the query.
+                    if id.is_empty() || secret.is_empty() {
+                        let data = storage::load_data_from_path(storage::get_data_path_from_env());
+                        if id.is_empty() {
+                            id = data.spotify_client_id.clone();
+                        }
+                        if secret.is_empty() {
+                            secret = data.spotify_client_secret.clone();
+                        }
+                    }
+                    if id.is_empty() || secret.is_empty() {
+                        if let Some(s) = &spotify_clone {
+                            let (cid, csec, _) = s.get_credentials().await;
+                            if id.is_empty() { id = cid; }
+                            if secret.is_empty() { secret = csec; }
+                        }
+                    }
+                    // Optional clientId in query is OK (public); secret in query is ignored.
+                    if id.is_empty() {
+                        if let Some(qid) = query_param(&request, "clientId") {
+                            id = qid;
+                        }
+                    }
+
+                    let response = if !id.is_empty() && !secret.is_empty() {
+                        tracing::info!("[SPOTIFY] Autorisation demandee, identifiants charges depuis le store local");
+                        if let Some(s) = &spotify_clone {
+                            s.set_client_credentials(id.clone(), secret).await;
+                        }
+                        let auth_url = format!(
+                            "https://accounts.spotify.com/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}",
+                            id,
+                            urlencoding::encode("http://127.0.0.1:40510/callback"),
+                            urlencoding::encode(SPOTIFY_SCOPES)
+                        );
+                        if is_post {
+                            let body = json!({ "redirect": auth_url }).to_string();
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(), body
+                            )
+                        } else {
                             format!("HTTP/1.1 302 Found\r\nLocation: {}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", auth_url)
                         }
-                        _ => {
-                            tracing::warn!("[SPOTIFY] Autorisation demandee sans clientId/clientSecret");
-                            let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret.</p></div></body></html>";
-                            format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
-                        }
+                    } else {
+                        tracing::warn!("[SPOTIFY] Autorisation demandee sans identifiants en store");
+                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret dans Crimson ou le Property Inspector.</p></div></body></html>";
+                        format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
                     };
                     let _ = stream.write_all(response.as_bytes()).await;
                     let _ = stream.shutdown().await;
@@ -335,8 +395,7 @@ async fn handle_connection(
                 tracing::warn!("[WS] Connexion refusee, jeton absent ou invalide");
                 return Err(forbid("Invalid token"));
             }
-            // Phase de transition : on signale sans rompre, le temps que tous
-            // les clients soient adaptes. CRIMSON_STRICT_AUTH=1 pour refuser.
+            // Strict est ON par defaut ; CRIMSON_STRICT_AUTH=0 desactive le refus.
             tracing::warn!("[WS] Connexion sans jeton valide acceptee (mode non strict)");
         }
 
@@ -359,18 +418,13 @@ async fn handle_connection(
         });
         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(initial_state.to_string().into())).await;
 
-        // Push auto_ban state (so StreamDock button shows correct ON/OFF)
-        let auto_ban_id = data.other.get("rememberedAutoBan")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        // Push auto_ban / auto_pick (active selection, not remembered-only)
+        let auto_ban_id = data.effective_auto_ban().unwrap_or(0);
         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
             json!({ "type": "AUTO_BAN_STATE", "championId": auto_ban_id }).to_string().into()
         )).await;
 
-        // Push auto_pick state
-        let auto_pick_id = data.other.get("rememberedAutoPick")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let auto_pick_id = data.effective_auto_pick().unwrap_or(0);
         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
             json!({ "type": "AUTO_PICK_STATE", "championId": auto_pick_id }).to_string().into()
         )).await;
@@ -540,8 +594,25 @@ async fn handle_connection(
                                         if let (Some(plugin), Some(enabled)) = (value["plugin"].as_str(), value["enabled"].as_bool()) {
                                             // Sans ce controle, n'importe quel client WebSocket
                                             // local activait un service premium d'un seul message.
+                                            // Hue / Twitch APIs are not implemented — never enable them.
+                                            if plugin == "hue" || plugin == "twitch" {
+                                                let msg = if plugin == "hue" {
+                                                    crate::hue::UNAVAILABLE_MSG
+                                                } else {
+                                                    crate::twitch::UNAVAILABLE_MSG
+                                                };
+                                                if let Some(h) = &hue { h.is_enabled.store(false, std::sync::atomic::Ordering::Relaxed); }
+                                                if let Some(t) = &twitch { t.is_enabled.store(false, std::sync::atomic::Ordering::Relaxed); }
+                                                tracing::warn!("[AUTH] Blocked TOGGLE_PLUGIN {}: {}", plugin, msg);
+                                                let _ = sender.0.send(json!({
+                                                    "type": "FEATURE_UNAVAILABLE",
+                                                    "plugin": plugin,
+                                                    "message": msg
+                                                }).to_string());
+                                                continue;
+                                            }
                                             if enabled
-                                                && ["spotify", "discord", "hue", "twitch"].contains(&plugin)
+                                                && ["spotify", "discord"].contains(&plugin)
                                                 && !crate::entitlement::is_premium().await
                                             {
                                                 tracing::warn!("[AUTH] Blocked TOGGLE_PLUGIN {} for free user", plugin);
@@ -570,8 +641,6 @@ async fn handle_connection(
                                                         }
                                                     }
                                                 }
-                                                "twitch" => { if let Some(t) = &twitch { t.is_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed); } }
-                                                "hue" => { if let Some(h) = &hue { h.is_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed); } }
                                                 "leagueOfLegends" => {
                                                     is_lol_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
                                                     if !enabled {
@@ -620,9 +689,29 @@ async fn handle_connection(
                                         // le laisser choisir qui atteste de ses propres droits.
                                         match value["access_token"].as_str() {
                                             Some(token) if !token.is_empty() => {
-                                                crate::entitlement::set_session(token.to_string());
+                                                // Le jeton de rafraichissement permet au serveur de
+                                                // se reauthentifier seul au demarrage suivant.
+                                                let refresh = value["refresh_token"]
+                                                    .as_str()
+                                                    .filter(|t| !t.is_empty())
+                                                    .map(|t| t.to_string());
+                                                crate::entitlement::set_session(token.to_string(), refresh);
                                             }
                                             _ => crate::entitlement::clear_session(),
+                                        }
+                                        continue;
+                                    }
+
+                                    // Credentials-only sync from the app (no tokens). Keeps the
+                                    // sidecar cache aligned with data.json without URL query params.
+                                    if value["type"] == "SPOTIFY_CREDENTIALS" {
+                                        if let Some(s) = &spotify {
+                                            if let (Some(id), Some(secret)) = (value["client_id"].as_str(), value["client_secret"].as_str()) {
+                                                if !id.is_empty() && !secret.is_empty() {
+                                                    s.set_client_credentials(id.to_string(), secret.to_string()).await;
+                                                    tracing::info!("[SPOTIFY] Identifiants client mis a jour via WS");
+                                                }
+                                            }
                                         }
                                         continue;
                                     }
@@ -726,38 +815,22 @@ async fn handle_connection(
                                     }
  
                                     if value["type"] == "HUE_COMMAND" {
-                                        if let Some(h) = &hue {
-                                            if !h.is_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-                                                tracing::info!("[HUE] Hue command ignored: service disabled");
-                                                continue;
-                                            }
-                                            if let Some(endpoint) = value["endpoint"].as_str() {
-                                                let h_clone = h.clone();
-                                                let endpoint_str = endpoint.to_string();
-                                                let val_clone = value.clone();
-                                                tokio::spawn(async move {
-                                                    let _ = h_clone.handle_command(&endpoint_str, Some(val_clone)).await;
-                                                });
-                                            }
-                                        }
+                                        tracing::warn!("[HUE] {}", crate::hue::UNAVAILABLE_MSG);
+                                        let _ = sender.0.send(json!({
+                                            "type": "FEATURE_UNAVAILABLE",
+                                            "plugin": "hue",
+                                            "message": crate::hue::UNAVAILABLE_MSG
+                                        }).to_string());
                                         continue;
                                     }
- 
+
                                     if value["type"] == "TWITCH_COMMAND" {
-                                        if let Some(t) = &twitch {
-                                            if !t.is_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-                                                tracing::info!("[TWITCH] Twitch command ignored: service disabled");
-                                                continue;
-                                            }
-                                            if let Some(endpoint) = value["endpoint"].as_str() {
-                                                let t_clone = t.clone();
-                                                let endpoint_str = endpoint.to_string();
-                                                let val_clone = value.clone();
-                                                tokio::spawn(async move {
-                                                    let _ = t_clone.handle_command(&endpoint_str, Some(val_clone)).await;
-                                                });
-                                            }
-                                        }
+                                        tracing::warn!("[TWITCH] {}", crate::twitch::UNAVAILABLE_MSG);
+                                        let _ = sender.0.send(json!({
+                                            "type": "FEATURE_UNAVAILABLE",
+                                            "plugin": "twitch",
+                                            "message": crate::twitch::UNAVAILABLE_MSG
+                                        }).to_string());
                                         continue;
                                     }
 
@@ -962,6 +1035,53 @@ async fn handle_connection(
                                         }
                                     }
 
+                                     // UI → sidecar: set auto-accept without racing the AtomicBool
+                                     if value["type"] == "SET_AUTO_ACCEPT" {
+                                         if !is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+                                             tracing::info!("LCU SET_AUTO_ACCEPT ignored: service disabled");
+                                             continue;
+                                         }
+                                         if let Some(enabled) = value["enabled"].as_bool() {
+                                             is_auto_accept_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+                                             let data_path = storage::get_data_path_from_env();
+                                             let mut data = storage::load_data_from_path(data_path.clone());
+                                             data.auto_accept = enabled;
+                                             storage::save_data_to_path(data_path, &data);
+                                             let _ = sender.0.send(json!({
+                                                 "type": "AUTO_ACCEPT_STATE",
+                                                 "enabled": enabled
+                                             }).to_string());
+                                         }
+                                         continue;
+                                     }
+
+                                     // UI already persisted pick/ban via Tauri; relay for StreamDock + sync typed fields.
+                                     if value["type"] == "AUTO_BAN_STATE" || value["type"] == "AUTO_PICK_STATE" {
+                                         let data_path = storage::get_data_path_from_env();
+                                         let mut data = storage::load_data_from_path(data_path.clone());
+                                         let champ = value.get("championId").and_then(crate::automation::parse_champ_id);
+                                         if value["type"] == "AUTO_BAN_STATE" {
+                                             if let Some(id) = champ {
+                                                 data.remembered_auto_ban = Some(id);
+                                                 data.auto_ban = Some(id);
+                                             } else {
+                                                 data.auto_ban = None;
+                                             }
+                                             data.other.remove("autoBan");
+                                         } else {
+                                             if let Some(id) = champ {
+                                                 data.remembered_auto_pick = Some(id);
+                                                 data.auto_pick = Some(id);
+                                             } else {
+                                                 data.auto_pick = None;
+                                             }
+                                             data.other.remove("autoPick");
+                                         }
+                                         storage::save_data_to_path(data_path, &data);
+                                         let _ = sender.0.send(text.clone());
+                                         continue;
+                                     }
+
                                      if value["type"] == "TOGGLE_AUTO_ACCEPT" {
                                          if !is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed) {
                                              tracing::info!("LCU TOGGLE_AUTO_ACCEPT ignored: service disabled");
@@ -996,24 +1116,27 @@ async fn handle_connection(
                                              tracing::info!("LCU command ignored: service disabled");
                                              continue;
                                          }
-                                         let _ = sender.0.send(text.clone());
+                                         // Forward non-mutation events to UI; ban/pick are applied here then
+                                         // announced via AUTO_*_STATE so the UI does not double-toggle.
+                                         if value["type"] != "TOGGLE_AUTO_BAN" && value["type"] != "TOGGLE_AUTO_PICK" {
+                                             let _ = sender.0.send(text.clone());
+                                         }
                                          
                                          // EXECUTE IN BACKEND
                                          if value["type"] == "TOGGLE_AUTO_BAN" {
                                              let data_path = storage::get_data_path_from_env();
                                              let mut data = storage::load_data_from_path(data_path.clone());
                                              
-                                             let auto_ban_val = if let Some(auto_ban) = data.other.get("autoBan") {
-                                                 if auto_ban.is_null() {
-                                                     data.other.get("rememberedAutoBan").unwrap_or(&json!(1)).clone()
-                                                 } else {
-                                                     data.other.insert("rememberedAutoBan".to_string(), auto_ban.clone());
-                                                     json!(null)
-                                                 }
+                                             if let Some(current) = data.effective_auto_ban() {
+                                                 data.remembered_auto_ban = Some(current);
+                                                 data.auto_ban = None;
                                              } else {
-                                                 data.other.get("rememberedAutoBan").unwrap_or(&json!(1)).clone()
-                                             };
-                                             data.other.insert("autoBan".to_string(), auto_ban_val.clone());
+                                                 data.auto_ban = data.remembered_auto_ban.filter(|&id| id > 0);
+                                             }
+                                             // Clear legacy other keys so typed fields win
+                                             data.other.remove("autoBan");
+                                             data.other.remove("rememberedAutoBan");
+                                             let auto_ban_val = data.auto_ban.map(|id| json!(id)).unwrap_or(json!(null));
                                              let _ = sender.0.send(json!({ "type": "AUTO_BAN_STATE", "championId": auto_ban_val }).to_string());
                                              
                                              storage::save_data_to_path(data_path, &data);
@@ -1021,17 +1144,15 @@ async fn handle_connection(
                                              let data_path = storage::get_data_path_from_env();
                                              let mut data = storage::load_data_from_path(data_path.clone());
                                              
-                                             let auto_pick_val = if let Some(auto_pick) = data.other.get("autoPick") {
-                                                 if auto_pick.is_null() {
-                                                     data.other.get("rememberedAutoPick").unwrap_or(&json!(1)).clone()
-                                                 } else {
-                                                     data.other.insert("rememberedAutoPick".to_string(), auto_pick.clone());
-                                                     json!(null)
-                                                 }
+                                             if let Some(current) = data.effective_auto_pick() {
+                                                 data.remembered_auto_pick = Some(current);
+                                                 data.auto_pick = None;
                                              } else {
-                                                 data.other.get("rememberedAutoPick").unwrap_or(&json!(1)).clone()
-                                             };
-                                             data.other.insert("autoPick".to_string(), auto_pick_val.clone());
+                                                 data.auto_pick = data.remembered_auto_pick.filter(|&id| id > 0);
+                                             }
+                                             data.other.remove("autoPick");
+                                             data.other.remove("rememberedAutoPick");
+                                             let auto_pick_val = data.auto_pick.map(|id| json!(id)).unwrap_or(json!(null));
                                              let _ = sender.0.send(json!({ "type": "AUTO_PICK_STATE", "championId": auto_pick_val }).to_string());
                                              
                                              storage::save_data_to_path(data_path, &data);

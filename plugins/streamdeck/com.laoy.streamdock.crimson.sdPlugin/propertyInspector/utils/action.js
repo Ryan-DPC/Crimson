@@ -123,26 +123,10 @@ async function connectElgatoStreamDeckSocket(port, uuid, event, app, info) {
         $propEvent[data.event]?.(data.payload);
     };
 
-    // CRIMSON DIRECT DATA SYNC (Bypass Bridge)
-    try {
-        const crimsonWS = new WebSocket('ws://127.0.0.1:40510');
-        crimsonWS.onopen = () => {
-            crimsonWS.send(JSON.stringify({ event: 'registerPropertyInspector', uuid: uuid }));
-        };
-        crimsonWS.onmessage = (e) => {
-            const data = JSON.parse(e.data);
-            if (data.event === 'sendToPropertyInspector') {
-                $propEvent.sendToPropertyInspector?.(data.payload);
-            }
-            if (data.event === 'didReceiveSettings' || data.event === 'didReceiveGlobalSettings') {
-                $propEvent[data.event]?.(data.payload);
-            }
-        };
-    } catch(e) { console.error("Crimson Direct Sync Failed", e); }
+    // Settings-only PIs: StreamDeck $websocket is enough. Do not open ws://40510
+    // (HTML PI cannot supply auth.token under CRIMSON_STRICT_AUTH).
 
-
-    // 自动翻译页面
-    if (!$local) return;
+    // 自动翻译页面    if (!$local) return;
     $lang = await new Promise(resolve => {
         const req = new XMLHttpRequest();
         req.open('GET', `../../${JSON.parse(app).application.language}.json`);

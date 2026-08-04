@@ -1,13 +1,22 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
     #[serde(default = "default_true")]
     pub auto_accept: bool,
+    /// Typed pick/ban fields — must match Tauri `lcu_commands` / frontend camelCase keys.
+    #[serde(default)]
+    pub auto_ban: Option<u64>,
+    #[serde(default)]
+    pub auto_pick: Option<u64>,
+    #[serde(default)]
+    pub remembered_auto_ban: Option<u64>,
+    #[serde(default)]
+    pub remembered_auto_pick: Option<u64>,
     // Renseignes par l'utilisateur depuis les parametres de l'app : chaque
     // installation utilise sa propre application Spotify. Aucune valeur par
     // defaut, un secret OAuth n'a pas a etre distribue dans le binaire.
@@ -39,6 +48,10 @@ impl Default for AppData {
     fn default() -> Self {
         Self {
             auto_accept: default_true(),
+            auto_ban: None,
+            auto_pick: None,
+            remembered_auto_ban: None,
+            remembered_auto_pick: None,
             spotify_client_id: String::new(),
             spotify_client_secret: String::new(),
             is_premium: false,
@@ -50,14 +63,84 @@ impl Default for AppData {
     }
 }
 
+impl AppData {
+    fn legacy_champ_id(value: &serde_json::Value) -> Option<u64> {
+        if value.is_null() {
+            return None;
+        }
+        value
+            .as_u64()
+            .or_else(|| value.as_i64().and_then(|i| if i >= 0 { Some(i as u64) } else { None }))
+            .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+            .filter(|&id| id > 0)
+    }
+
+    /// Prefer typed fields; fall back to legacy `other.autoBan` if present.
+    pub fn effective_auto_ban(&self) -> Option<u64> {
+        self.auto_ban
+            .filter(|&id| id > 0)
+            .or_else(|| self.other.get("autoBan").and_then(Self::legacy_champ_id))
+    }
+
+    pub fn effective_auto_pick(&self) -> Option<u64> {
+        self.auto_pick
+            .filter(|&id| id > 0)
+            .or_else(|| self.other.get("autoPick").and_then(Self::legacy_champ_id))
+    }
+}
+
 lazy_static::lazy_static! {
     static ref CACHED_APP_DATA: std::sync::RwLock<Option<(AppData, std::time::SystemTime)>> = std::sync::RwLock::new(None);
 }
 
+/// Copy missing files from a legacy AppData folder into the canonical one.
+/// Same policy as the Tauri host: never overwrite files that already exist.
+fn migrate_legacy_appdata(from: &Path, to: &Path) {
+    let Ok(entries) = fs::read_dir(from) else { return };
+    let _ = fs::create_dir_all(to);
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let Some(name) = src.file_name() else { continue };
+        let dest = to.join(name);
+        if dest.exists() {
+            continue;
+        }
+        if src.is_dir() {
+            let _ = copy_dir_recursive(&src, &dest);
+        } else {
+            let _ = fs::copy(&src, &dest);
+        }
+    }
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dest = to.join(entry.file_name());
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest)?;
+        } else if !dest.exists() {
+            fs::copy(&src, &dest)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn get_data_dir() -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_default();
-    // Must match the Tauri frontend's path (lcu_commands crate uses "com.laoy.crimson")
-    let path = PathBuf::from(appdata).join("com.laoy.crimson");
+    // Canonical data dir: must match tauri.conf.json `identifier` (com.laoy.crimsons).
+    // The sidecar can start before (or without) the Tauri host, so it must migrate
+    // legacy folders itself — otherwise it creates an empty com.laoy.crimsons and
+    // orphans data.json / auth.token under com.laoy.crimson or com.laoy.crimons.
+    let path = PathBuf::from(&appdata).join("com.laoy.crimsons");
+    for legacy_name in ["com.laoy.crimson", "com.laoy.crimons"] {
+        let legacy = PathBuf::from(&appdata).join(legacy_name);
+        if legacy.exists() && legacy != path {
+            migrate_legacy_appdata(&legacy, &path);
+        }
+    }
     if !path.exists() {
         let _ = fs::create_dir_all(&path);
     }
@@ -156,6 +239,40 @@ pub fn log_to_file(log_name: &str, message: &str) {
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
         use std::io::Write;
         let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), message);
+    }
+}
+
+#[cfg(test)]
+mod storage_automation_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn effective_auto_ban_prefers_typed_field() {
+        let mut data = AppData::default();
+        data.auto_ban = Some(157);
+        data.other.insert("autoBan".into(), json!(103));
+        assert_eq!(data.effective_auto_ban(), Some(157));
+    }
+
+    #[test]
+    fn effective_auto_ban_falls_back_to_other() {
+        let mut data = AppData::default();
+        data.other.insert("autoBan".into(), json!(103));
+        assert_eq!(data.effective_auto_ban(), Some(103));
+    }
+
+    #[test]
+    fn roundtrip_camel_case_pick_ban() {
+        let mut data = AppData::default();
+        data.auto_pick = Some(64);
+        data.auto_ban = Some(238);
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("\"autoPick\":64"));
+        assert!(json.contains("\"autoBan\":238"));
+        let loaded: AppData = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.effective_auto_pick(), Some(64));
+        assert_eq!(loaded.effective_auto_ban(), Some(238));
     }
 }
 

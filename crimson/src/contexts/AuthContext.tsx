@@ -50,6 +50,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
         }
 
+        // Start the sidecar as soon as we have a Supabase user. Premium lookup
+        // must not gate this: a profiles RLS/network failure used to leave the
+        // backend permanently down while the UI looked "logged in".
+        try {
+            await invoke('crimson_start_server');
+        } catch (e) {
+            console.error('Failed to start server:', e);
+        }
+
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -63,13 +72,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // longueur du jeton ne prouvait rien : c'est la base qui fait foi,
             // et le serveur local revalide de son cote avant toute commande.
             setIsPremium(data?.is_premium === true);
-
-            // Start the backend server now that we are authenticated
-            try {
-                await invoke('crimson_start_server');
-            } catch (e) {
-                console.error('Failed to start server:', e);
-            }
         } catch (error) {
             console.error('Error fetching premium status:', error);
             setIsPremium(false);

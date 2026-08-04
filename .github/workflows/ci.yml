@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (lint + typecheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crimson
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crimson/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Dette ESLint existante (surtout @typescript-eslint/no-explicit-any) :
+      # on execute le lint pour le rendre visible sans bloquer les PR tant
+      # qu'elle n'est pas reprise. Le typecheck reste bloquant.
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Typecheck
+        run: npx tsc -b --pretty false
+
+  rust:
+    name: Rust (clippy + tests)
+    # crimson-server depend du crate `windows` et de named pipes Discord.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      # Pas de -D warnings : dead_code et co. existent deja. Clippy reste
+      # execute pour attraper les erreurs de compilation / lints fatals.
+      - name: Clippy (crimson-server + lcu_commands)
+        run: cargo clippy -p crimson-server -p lcu_commands --all-targets
+
+      - name: Test crimson-server (Origin WS)
+        run: cargo test -p crimson-server --lib
+
+      - name: Test lcu_commands
+        run: cargo test -p lcu_commands

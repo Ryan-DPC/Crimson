@@ -117,6 +117,23 @@ pub async fn start_mirabox_auth_server<T>(_auth: Arc<T>, _tx: Option<mpsc::Sende
     // Stub with generic type
 }
 
+/// Returns true if the image is new for this context and should be pushed.
+/// Used to avoid re-sending the same cover (or empty/default) which flashes the
+/// stock Spotify logo on StreamDock keys.
+pub async fn push_image_if_changed(context: &str, image: &str) -> bool {
+    if image.is_empty() {
+        return false;
+    }
+    for bridge in ACTIVE_BRIDGES.iter() {
+        let mut last = bridge.last_image_per_ctx.lock().await;
+        if last.get(context).map(|s| s.as_str()) == Some(image) {
+            return false;
+        }
+        last.insert(context.to_string(), image.to_string());
+    }
+    true
+}
+
 pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<SpotifyService>, _d: Arc<DiscordService>, _tx: mpsc::Sender<String>, contexts: Arc<tokio::sync::Mutex<HashMap<String, String>>>, _pi: Arc<tokio::sync::Mutex<HashSet<String>>>, _ls: Arc<tokio::sync::Mutex<Option<serde_json::Value>>>, _spc: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>, _h: Arc<crate::hue::HueService>, _t: Arc<crate::twitch::TwitchService>, _db: Arc<StreamDockDB>) {
     let event = value["event"].as_str().unwrap_or("");
     let context = value["context"].as_str().unwrap_or("");
@@ -132,6 +149,54 @@ pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<Spo
         if !crate::entitlement::is_premium().await {
             tracing::warn!("[AUTH] Blocked StreamDock action {} for free user", action);
             return;
+        }
+    }
+
+    // Property Inspectors are HTML-only (no Node/ActiveX), so they cannot read
+    // auth.token for a direct ws://40510 connection under strict auth. Push
+    // Spotify PI data over the StreamDeck bridge instead.
+    let pi_refresh = event == "sendToPlugin"
+        && matches!(
+            value["payload"]["type"].as_str(),
+            Some("refresh") | Some("requestPiData")
+        );
+    if action.starts_with("com.laoy.streamdock.spotify")
+        && (event == "propertyInspectorDidAppear" || pi_refresh)
+    {
+        let ctx = context.to_string();
+        let act = action.clone();
+        let s = spotify.clone();
+        let tx = _tx.clone();
+        tokio::spawn(async move {
+            let playlists = s.get_user_playlists().await.unwrap_or_default();
+            let devices = s.get_user_devices().await.unwrap_or_default();
+            let _ = tx
+                .send(
+                    json!({
+                        "event": "sendToPropertyInspector",
+                        "context": ctx,
+                        "action": act,
+                        "payload": {
+                            "playlists": playlists,
+                            "devices": devices,
+                            "authorized": true
+                        }
+                    })
+                    .to_string(),
+                )
+                .await;
+        });
+    }
+
+    // Never clear a key image to empty/null during sync — that flashes the default
+    // Spotify logo. Dedup helper is available for outbound callers.
+    if event == "setImage" {
+        let img = value["payload"]["image"].as_str();
+        if img.map(|s| s.is_empty()).unwrap_or(true) {
+            return;
+        }
+        if let (Some(ctx), Some(image)) = (value["context"].as_str(), img) {
+            let _ = push_image_if_changed(ctx, image).await;
         }
     }
 
@@ -203,6 +268,18 @@ pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<Spo
                 let settings = value["payload"]["settings"].clone();
                 tokio::spawn(async move { let _ = s.handle_command("play", Some(settings)).await; });
             }
+            a if a.starts_with("com.laoy.streamdock.hue.") => {
+                tracing::warn!("[HUE] StreamDock key rejected: {}", crate::hue::UNAVAILABLE_MSG);
+                let h = _h.clone();
+                let endpoint = a.rsplit('.').next().unwrap_or("").to_string();
+                tokio::spawn(async move { let _ = h.handle_command(&endpoint, None).await; });
+            }
+            a if a.starts_with("com.laoy.streamdock.twitch.") => {
+                tracing::warn!("[TWITCH] StreamDock key rejected: {}", crate::twitch::UNAVAILABLE_MSG);
+                let t = _t.clone();
+                let endpoint = a.rsplit('.').next().unwrap_or("").to_string();
+                tokio::spawn(async move { let _ = t.handle_command(&endpoint, None).await; });
+            }
             _ => {}
         }
     }
@@ -272,28 +349,12 @@ pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<Spo
         }
     }
     if value["type"] == "HUE_COMMAND" {
-        if let Some(endpoint) = value["endpoint"].as_str() {
-            if _h.is_enabled.load(Ordering::Relaxed) {
-                let h = _h.clone();
-                let endpoint_str = endpoint.to_string();
-                let val_clone = value.clone();
-                tokio::spawn(async move {
-                    let _ = h.handle_command(&endpoint_str, Some(val_clone)).await;
-                });
-            }
-        }
+        tracing::warn!("[HUE] StreamDock command rejected: {}", crate::hue::UNAVAILABLE_MSG);
+        let _ = _h.handle_command(value["endpoint"].as_str().unwrap_or(""), Some(value.clone())).await;
     }
     if value["type"] == "TWITCH_COMMAND" {
-        if let Some(endpoint) = value["endpoint"].as_str() {
-            if _t.is_enabled.load(Ordering::Relaxed) {
-                let t = _t.clone();
-                let endpoint_str = endpoint.to_string();
-                let val_clone = value.clone();
-                tokio::spawn(async move {
-                    let _ = t.handle_command(&endpoint_str, Some(val_clone)).await;
-                });
-            }
-        }
+        tracing::warn!("[TWITCH] StreamDock command rejected: {}", crate::twitch::UNAVAILABLE_MSG);
+        let _ = _t.handle_command(value["endpoint"].as_str().unwrap_or(""), Some(value.clone())).await;
     }
     if value["type"] == "ADJUST_AUDIO" {
         if _d.is_enabled.load(Ordering::Relaxed) {

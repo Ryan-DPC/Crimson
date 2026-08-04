@@ -2,7 +2,7 @@
   "Actions": [
     {
       "Icon": "static/icon/hue_toggle@2x.png",
-      "Name": "Toggle Light",
+      "Name": "Toggle Light (Soon)",
       "Controllers": ["Keypad"],
       "States": [
         {
@@ -19,7 +19,7 @@
     },
     {
       "Icon": "static/icon/hue_scene@2x.png",
-      "Name": "Set Scene",
+      "Name": "Set Scene (Soon)",
       "Controllers": ["Keypad"],
       "States": [
         {
@@ -31,10 +31,10 @@
     }
   ],
   "Author": "Laoy",
-  "Description": "Philips Hue Lighting Control",
+  "Description": "Philips Hue Lighting Control (Coming Soon)",
   "Icon": "static/icon/hue_toggle@2x.png",
-  "Name": "Philips Hue",
-  "Category": "Philips Hue",
+  "Name": "Philips Hue (Soon)",
+  "Category": "Philips Hue (Soon)",
   "CategoryIcon": "static/icon/hue_toggle@2x.png",
   "Version": "3.1.0",
   "SDKVersion": 1,

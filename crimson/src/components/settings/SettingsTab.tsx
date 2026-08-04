@@ -35,7 +35,7 @@ const Toggle = ({ value, onChange, label, description, disabled }: {
 
 const SettingsTab = () => {
     const { 
-        appData, updateSetting,
+        appData, updateSetting, loginSpotify,
         updateStatus, updateProgress, availableVersion, 
         checkUpdates, installUpdate, serverConnected, 
         togglePlugin, spotifyConnected, spotifyState
@@ -78,8 +78,14 @@ const SettingsTab = () => {
     };
 
     const handleSaveSpotifyCredentials = async () => {
-        await updateSetting('spotifyClientId', spotifyIdInput.trim());
-        await updateSetting('spotifyClientSecret', spotifySecretInput.trim());
+        const clientId = spotifyIdInput.trim();
+        const clientSecret = spotifySecretInput.trim();
+        await updateSetting('spotifyClientId', clientId);
+        await updateSetting('spotifyClientSecret', clientSecret);
+        try {
+            localStorage.removeItem('spotify_client_secret');
+            localStorage.removeItem('spotify_client_id');
+        } catch { /* ignore */ }
         setSpotifyError(null);
     };
 
@@ -93,20 +99,10 @@ const SettingsTab = () => {
         }
         setSpotifyError(null);
 
-        // Enregistre avant d'ouvrir l'autorisation : le gestionnaire de callback
-        // et le serveur relisent ces valeurs pour l'echange puis le rafraichissement.
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
-        localStorage.setItem('spotify_client_id', clientId);
-        localStorage.setItem('spotify_client_secret', clientSecret);
-
-        const redirectUri = 'http://127.0.0.1:40510/callback';
-        const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
-        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
-
         try {
-            const { open } = await import('@tauri-apps/plugin-shell');
-            await open(authUrl);
+            localStorage.removeItem('spotify_client_secret');
+            localStorage.removeItem('spotify_client_id');
+            await loginSpotify(clientId, clientSecret);
         } catch (e) {
             console.error("Failed to open Spotify auth", e);
             setSpotifyError("Impossible d'ouvrir la page d'autorisation Spotify.");
@@ -594,32 +590,38 @@ const SettingsTab = () => {
                                         key: 'leagueOfLegends',
                                         name: 'League of Legends',
                                         desc: 'Contrôle de l\'auto-accept et de la sélection des champions',
+                                        comingSoon: false,
                                     },
                                     {
                                         key: 'spotify',
                                         name: 'Spotify',
                                         desc: 'Contrôle de la lecture, de la couverture et des infos Spotify',
+                                        comingSoon: false,
                                     },
                                     {
                                         key: 'discord',
                                         name: 'Discord',
                                         desc: 'Gestion des raccourcis micro, deafen et statut Discord',
+                                        comingSoon: false,
                                     },
                                     {
                                         key: 'twitch',
-                                        name: 'Twitch',
-                                        desc: 'Gestion des scènes de stream, alertes et chat Twitch',
+                                        name: 'Twitch (Soon)',
+                                        desc: 'Bientôt disponible — chat, pubs et compteur de viewers',
+                                        comingSoon: true,
                                     },
                                     {
                                         key: 'hue',
-                                        name: 'Philips Hue',
-                                        desc: 'Contrôle dynamique et synchronisation de l\'éclairage ambiant',
+                                        name: 'Philips Hue (Soon)',
+                                        desc: 'Bientôt disponible — contrôle d\'éclairage ambiant',
+                                        comingSoon: true,
                                     }
                                 ].map((plugin) => {
-                                    const isPremiumPlugin = plugin.key === 'spotify' || plugin.key === 'discord' || plugin.key === 'twitch' || plugin.key === 'hue';
+                                    const isComingSoon = plugin.comingSoon;
+                                    const isPremiumPlugin = plugin.key === 'spotify' || plugin.key === 'discord';
                                     const isInstalled = !!pluginsInstalled[plugin.key];
-                                    let isEnabled = pluginsState[plugin.key] ?? true;
-                                    let isDisabled = !isInstalled;
+                                    let isEnabled = isComingSoon ? false : (pluginsState[plugin.key] ?? true);
+                                    let isDisabled = isComingSoon || !isInstalled;
                                     
                                     if (isPremiumPlugin && !isPremium) {
                                         isEnabled = false;
@@ -632,25 +634,27 @@ const SettingsTab = () => {
                                             className={`bg-black/20 p-6 rounded-3xl border border-white/5 flex flex-col justify-between relative group overflow-hidden ${isDisabled ? 'opacity-50 grayscale' : ''}`}
                                         >
                                             {/* Subtle ambient light behind the card */}
-                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isInstalled ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
+                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isComingSoon ? 'from-amber-500/5 to-transparent' : isInstalled ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
                                             
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className={`text-[9px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md border ${
-                                                    isInstalled 
+                                                    isComingSoon
+                                                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                                        : isInstalled 
                                                         ? isEnabled 
                                                             ? 'bg-green-500/10 border-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.1)]' 
                                                             : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
                                                         : 'bg-white/5 border-white/5 text-white/30'
                                                 }`}>
-                                                    {isPremiumPlugin && !isPremium ? "Premium Requis" : isInstalled ? (isEnabled ? "Actif & Opérationnel" : "Désactivé") : "Non détecté"}
+                                                    {isComingSoon ? "Bientôt disponible" : isPremiumPlugin && !isPremium ? "Premium Requis" : isInstalled ? (isEnabled ? "Actif & Opérationnel" : "Désactivé") : "Non détecté"}
                                                 </span>
                                                 
-                                                {!isInstalled && (!isPremiumPlugin || isPremium) && (
+                                                {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-red-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Plugin requis
                                                     </div>
                                                 )}
-                                                {isPremiumPlugin && !isPremium && (
+                                                {!isComingSoon && isPremiumPlugin && !isPremium && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-orange-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Lock
                                                     </div>
@@ -682,9 +686,14 @@ const SettingsTab = () => {
                                                 </div>
                                             )}
                                             
-                                            {!isInstalled && (!isPremiumPlugin || isPremium) && (
+                                            {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
                                                     Installez ce plugin sur votre Stream Deck pour l'activer.
+                                                </p>
+                                            )}
+                                            {isComingSoon && (
+                                                <p className="text-[9px] text-amber-500/40 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
+                                                    Intégration en cours — non disponible pour le moment.
                                                 </p>
                                             )}
                                         </div>

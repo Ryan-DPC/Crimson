@@ -14,12 +14,41 @@ let currentVideoState = { cameraOn: false };
 // ==========================================
 // CRIMSON BACKEND CONNECT
 // ==========================================
+function crimsonAuthToken() {
+    try {
+        var fs = require('fs');
+        var path = require('path');
+        var tokenPath = path.join(process.env.APPDATA || '', 'com.laoy.crimsons', 'auth.token');
+        return (fs.readFileSync(tokenPath, 'utf8') || '').trim();
+    } catch (e) {
+        try {
+            var shell = new ActiveXObject('WScript.Shell');
+            var fso = new ActiveXObject('Scripting.FileSystemObject');
+            var p = shell.ExpandEnvironmentStrings('%APPDATA%\\com.laoy.crimsons\\auth.token');
+            if (!fso.FileExists(p)) return '';
+            var f = fso.OpenTextFile(p, 1);
+            var t = f.ReadAll();
+            f.Close();
+            return (t || '').trim();
+        } catch (e2) {
+            return '';
+        }
+    }
+}
+
+function crimsonWsUrl(port) {
+    port = port || 40510;
+    var token = crimsonAuthToken();
+    var base = 'ws://127.0.0.1:' + port;
+    return token ? (base + '/?token=' + encodeURIComponent(token)) : base;
+}
+
 const crimsonAPI = {
     ws: null,
     queue: [],
     onOpen: null,
     connect() {
-        this.ws = new WebSocket("ws://127.0.0.1:40510");
+        this.ws = new WebSocket(crimsonWsUrl(40510));
         this.ws.onopen = () => {
             console.log("[Discord] Connected to Crimson Backend on 40510.");
             if (this.onOpen) {

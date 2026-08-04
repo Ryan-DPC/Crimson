@@ -18,11 +18,17 @@ lazy_static::lazy_static! {
     static ref CURRENT: RwLock<Option<String>> = RwLock::new(None);
 }
 
-/// Mode strict : refuse les connexions non authentifiees au lieu de se
-/// contenter de les journaliser. Active par CRIMSON_STRICT_AUTH=1, le temps de
-/// verifier que tous les clients presentent bien le jeton.
+/// Mode strict : refuse les connexions WebSocket sans jeton valide.
+/// Active par defaut. Escape hatch : `CRIMSON_STRICT_AUTH=0` (ou `false`/`off`)
+/// pour accepter temporairement les clients non authentifies.
 pub fn strict_mode() -> bool {
-    std::env::var("CRIMSON_STRICT_AUTH").map(|v| v == "1").unwrap_or(false)
+    match std::env::var("CRIMSON_STRICT_AUTH") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "0" || v == "false" || v == "off" || v == "no")
+        }
+        Err(_) => true,
+    }
 }
 
 pub fn generate_and_save_token() -> String {

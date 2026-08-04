@@ -1,4 +1,4 @@
-use crate::{lcu, storage};
+use crate::{automation, lcu, storage};
 use std::time::Duration;
 use tokio::time::interval;
 use serde_json::json;
@@ -31,9 +31,16 @@ pub fn start_auto_accept_service(
                 continue;
             }
 
-            if is_auto_accept_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+            // Disk is source of truth (UI may change autoAccept without touching the AtomicBool).
+            let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
+            is_auto_accept_enabled.store(app_data.auto_accept, std::sync::atomic::Ordering::Relaxed);
+
+            if app_data.auto_accept {
                 let _ = check_and_accept(&sender);
             }
+
+            // Backup poll for pick/ban (LCU WS is primary; this covers missed events).
+            let _ = poll_champ_select_automation();
             
             loop_count = loop_count.wrapping_add(1);
             if loop_count % 5 == 0 {
@@ -51,21 +58,31 @@ pub fn start_auto_accept_service(
 }
 
 fn check_and_accept(sender: &WsSender) -> Result<(), String> {
-    // 1. Auto-Accept Logic
-    let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None);
-    if let Ok(json) = ready_check {
-        if json.contains("\"InProgress\"") {
-            let _ = lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None);
-            
-            // Send WebSocket notification for the UI to display
-            let _ = sender.0.send(json!({
-                "type": "NATIVE_NOTIFICATION",
-                "title": "CRIMSON",
-                "body": "Match accepté automatiquement !"
-            }).to_string());
-        }
+    let ready_check = lcu::lcu_request("GET".into(), "/lol-matchmaking/v1/ready-check".into(), None)?;
+    let data: serde_json::Value = serde_json::from_str(&ready_check).map_err(|e| e.to_string())?;
+
+    let state = data["state"].as_str().unwrap_or("");
+    let player_status = data["playerResponse"].as_str().unwrap_or("");
+    if !automation::should_auto_accept(state, player_status, true) {
+        return Ok(());
     }
 
+    tracing::info!("Service: Ready-check InProgress — auto-accepting");
+    lcu::lcu_request("POST".into(), "/lol-matchmaking/v1/ready-check/accept".into(), None)?;
+
+    let _ = sender.0.send(json!({
+        "type": "NATIVE_NOTIFICATION",
+        "title": "CRIMSON",
+        "body": "Match accepté automatiquement !"
+    }).to_string());
+
+    Ok(())
+}
+
+fn poll_champ_select_automation() -> Result<(), String> {
+    let session_json = lcu::lcu_request("GET".into(), "/lol-champ-select/v1/session".into(), None)?;
+    let session: serde_json::Value = serde_json::from_str(&session_json).map_err(|e| e.to_string())?;
+    automation::handle_champ_select_standalone(&session);
     Ok(())
 }
 

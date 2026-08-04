@@ -3,6 +3,9 @@ use crate::events::WsSender;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Explicit product gate: Twitch API is not implemented yet.
+pub const UNAVAILABLE_MSG: &str = "Twitch is not available yet (coming soon)";
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct TwitchState {
     pub connected: bool,
@@ -13,6 +16,7 @@ pub struct TwitchState {
 pub struct TwitchService {
     _state: Arc<RwLock<TwitchState>>,
     _sender: WsSender,
+    /// Kept for WS/entitlement wiring; commands always fail until the API exists.
     pub is_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -25,31 +29,12 @@ impl TwitchService {
         }
     }
 
-    pub async fn handle_command(&self, endpoint: &str, params: Option<serde_json::Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if !self.is_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::info!("[TWITCH] Twitch command ignored: service disabled");
-            return Ok(());
-        }
-
-        match endpoint {
-            "chat" => {
-                if let Some(p) = params {
-                    let message = p["payload"]["settings"]["message"].as_str().or(p["message"].as_str());
-                    if let Some(msg) = message {
-                        println!("Twitch: Sending chat message: {}", msg);
-                    }
-                }
-            }
-            "ad" => {
-                println!("Twitch: Running ad...");
-            }
-            _ => return Err("Unknown Twitch command".into()),
-        }
-        Ok(())
+    pub async fn handle_command(&self, endpoint: &str, _params: Option<serde_json::Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        tracing::warn!("[TWITCH] Rejected '{}': {}", endpoint, UNAVAILABLE_MSG);
+        Err(UNAVAILABLE_MSG.into())
     }
 
     pub async fn start_background_polling(&self) {
-        println!("Twitch: Starting background polling for viewer count...");
-        // TODO: Implement actual Twitch API polling
+        tracing::info!("[TWITCH] Background polling skipped: {}", UNAVAILABLE_MSG);
     }
 }

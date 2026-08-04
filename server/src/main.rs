@@ -37,10 +37,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Global\crimson_server_v2_lock empechait ensuite le vrai serveur de
     // demarrer. Le tout sans la moindre erreur visible.
     if cfg!(debug_assertions) && std::env::var("CRIMSON_DEV").as_deref() != Ok("1") {
-        tracing::warn!(
-            "Build de developpement lance hors contexte de developpement : arret. \
-             Definissez CRIMSON_DEV=1 pour l'executer volontairement."
+        // tracing may not flush before exit; leave a breadcrumb next to logs.
+        let msg = "Build de developpement lance hors contexte de developpement : arret. \
+             Definissez CRIMSON_DEV=1 pour l'executer volontairement.";
+        let path = crimson_server::storage::get_data_dir().join("panic.log");
+        let _ = std::fs::write(
+            path,
+            format!("SIDECAR REFUSED TO START: {}\n", msg),
         );
+        tracing::warn!("{}", msg);
         return Ok(());
     }
 
@@ -171,8 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crimson_server::entitlement::start_guard(vec![
         ("spotify", s.is_enabled.clone()),
         ("discord", d.is_enabled.clone()),
-        ("hue", h.is_enabled.clone()),
-        ("twitch", t.is_enabled.clone()),
+        // Hue / Twitch stay out of the entitlement guard until their APIs exist.
     ]);
 
     let hotkey_manager = crimson_server::hotkeys::HotkeyManager::new(sender.clone(), s.clone(), d.clone());
@@ -188,11 +192,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let d_poll = d.clone();
     tokio::spawn(async move { d_poll.start_background_polling().await; });
     
-    tracing::info!("Starting Twitch Service");
+    // Hue / Twitch stubs register for WS dispatch but stay unavailable.
+    tracing::info!("Twitch Service stub loaded (coming soon)");
     let t_poll = t.clone();
     tokio::spawn(async move { t_poll.start_background_polling().await; });
     
-    tracing::info!("Starting Hue Service");
+    tracing::info!("Hue Service stub loaded (coming soon)");
     
     updater::start_background_updater().await;
 

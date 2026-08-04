@@ -3,6 +3,9 @@ use crate::events::WsSender;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Explicit product gate: Hue API is not implemented yet.
+pub const UNAVAILABLE_MSG: &str = "Philips Hue is not available yet (coming soon)";
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct HueState {
     pub connected: bool,
@@ -13,6 +16,7 @@ pub struct HueState {
 pub struct HueService {
     _state: Arc<RwLock<HueState>>,
     _sender: WsSender,
+    /// Kept for WS/entitlement wiring; commands always fail until the API exists.
     pub is_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -25,27 +29,8 @@ impl HueService {
         }
     }
 
-    pub async fn handle_command(&self, endpoint: &str, params: Option<serde_json::Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if !self.is_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::info!("[HUE] Hue command ignored: service disabled");
-            return Ok(());
-        }
-
-        match endpoint {
-            "toggle" => {
-                println!("Hue: Toggling lights...");
-                // TODO: Implement actual Hue API call using reqwest/ureq
-            }
-            "scene" => {
-                if let Some(p) = params {
-                    let scene_id = p["payload"]["settings"]["sceneId"].as_str().or(p["sceneId"].as_str());
-                    if let Some(sid) = scene_id {
-                        println!("Hue: Setting scene {}...", sid);
-                    }
-                }
-            }
-            _ => return Err("Unknown Hue command".into()),
-        }
-        Ok(())
+    pub async fn handle_command(&self, endpoint: &str, _params: Option<serde_json::Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        tracing::warn!("[HUE] Rejected '{}': {}", endpoint, UNAVAILABLE_MSG);
+        Err(UNAVAILABLE_MSG.into())
     }
 }

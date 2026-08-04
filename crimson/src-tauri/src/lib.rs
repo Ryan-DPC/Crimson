@@ -3,6 +3,41 @@ use lcu_commands::{lcu, storage, db, SidecarChild};
 
 mod commands;
 
+/// Copy missing files from a legacy AppData folder into the canonical one.
+/// Skips destinations that already exist so current data.json / auth.token win.
+fn migrate_legacy_appdata(from: &std::path::Path, to: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(from) else { return };
+    let _ = std::fs::create_dir_all(to);
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let Some(name) = src.file_name() else { continue };
+        let dest = to.join(name);
+        if dest.exists() {
+            continue;
+        }
+        if src.is_dir() {
+            let _ = copy_dir_recursive(&src, &dest);
+        } else {
+            let _ = std::fs::copy(&src, &dest);
+        }
+    }
+}
+
+fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dest = to.join(entry.file_name());
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest)?;
+        } else if !dest.exists() {
+            std::fs::copy(&src, &dest)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -46,10 +81,21 @@ pub fn run() {
       let handle = app.handle().clone();
       let path_resolver = handle.path();
 
-
-      
-      // 1. Initialize Log IMMEDIATELY in the correct AppData folder
+      // Canonical AppData folder is com.laoy.crimsons (matches tauri.conf.json identifier).
+      // One-time: merge missing files from legacy folders so they are not orphaned:
+      //   - com.laoy.crimson (previous identifier, no trailing S)
+      //   - com.laoy.crimons  (older typo identifier)
       if let Ok(app_data) = path_resolver.app_data_dir() {
+          if let Ok(appdata) = std::env::var("APPDATA") {
+              for legacy_name in ["com.laoy.crimson", "com.laoy.crimons"] {
+                  let legacy_dir = std::path::PathBuf::from(&appdata).join(legacy_name);
+                  if legacy_dir.exists() && legacy_dir != app_data {
+                      migrate_legacy_appdata(&legacy_dir, &app_data);
+                  }
+              }
+          }
+
+          // 1. Initialize Log IMMEDIATELY in the correct AppData folder
           let _ = std::fs::create_dir_all(&app_data);
           let log_path = app_data.join("launch_debug.log");
           if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
@@ -131,13 +177,6 @@ pub fn run() {
       let (tx, _) = tokio::sync::broadcast::channel(100);
       app.manage(lcu_commands::events::WsSender(tx));
 
-      let handle_c = handle.clone();
-      
-      // Force auto_accept to true on startup
-      let mut data = storage::load_data(&handle_c);
-      data.auto_accept = true;
-      storage::save_data(&handle_c, &data);
-
       // Launch Sidecar Logic (v1.6.5 Persistence Priority)
       let sidecar_child = std::sync::Arc::new(tokio::sync::Mutex::new(None));
       app.manage(SidecarChild(sidecar_child));
@@ -189,7 +228,10 @@ fn notify_server_resource_mode(low: bool) -> Result<(), String> {
         use futures_util::SinkExt;
         use serde_json::json;
 
-        let url = "ws://127.0.0.1:40510";
+        let url = match crimson_server::auth::read_token() {
+            Some(t) if !t.is_empty() => format!("ws://127.0.0.1:40510/?token={}", t),
+            _ => "ws://127.0.0.1:40510".to_string(),
+        };
         if let Ok((mut ws_stream, _)) = connect_async(url).await {
             let msg = json!({
                 "type": "UPDATE_RESOURCE_MODE",

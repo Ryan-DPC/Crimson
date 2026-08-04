@@ -123,40 +123,9 @@ async function connectElgatoStreamDeckSocket(port, uuid, event, app, info) {
         $propEvent[data.event]?.(data.payload);
     };
 
-    // CRIMSON DIRECT DATA SYNC (Bypass Bridge)
-    function connectCrimsonSync() {
-        try {
-            const crimsonWS = new WebSocket('ws://127.0.0.1:40510');
-            crimsonWS.onopen = () => {
-                crimsonWS.send(JSON.stringify({ event: 'registerPropertyInspector', uuid: uuid }));
-            };
-            crimsonWS.onmessage = (e) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    if (data.event === 'sendToPropertyInspector') {
-                        $propEvent.sendToPropertyInspector?.(data.payload);
-                    }
-                    if (data.event === 'didReceiveSettings' || data.event === 'didReceiveGlobalSettings') {
-                        $propEvent[data.event]?.(data.payload);
-                    }
-                } catch (err) {
-                    console.error("Crimson message processing failed", err);
-                }
-            };
-            crimsonWS.onclose = () => {
-                console.warn("Crimson Direct Sync closed. Reconnecting in 2s...");
-                setTimeout(connectCrimsonSync, 2000);
-            };
-            crimsonWS.onerror = () => {
-                crimsonWS.close();
-            };
-        } catch(e) {
-            console.error("Crimson Direct Sync Failed", e);
-            setTimeout(connectCrimsonSync, 2000);
-        }
-    }
-    connectCrimsonSync();
-
+    // HTML PIs cannot read auth.token (no Node/ActiveX). Do not open ws://40510
+    // without a token — Crimson pushes PI data via sendToPropertyInspector on the
+    // StreamDeck bridge (propertyInspectorDidAppear / sendToPlugin refresh).
 
     // 自动翻译页面
     if (!$local) return;

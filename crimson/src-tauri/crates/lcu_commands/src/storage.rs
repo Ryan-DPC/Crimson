@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -113,9 +113,49 @@ impl Default for AppData {
     }
 }
 
+fn migrate_legacy_appdata(from: &Path, to: &Path) {
+    let Ok(entries) = fs::read_dir(from) else { return };
+    let _ = fs::create_dir_all(to);
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let Some(name) = src.file_name() else { continue };
+        let dest = to.join(name);
+        if dest.exists() {
+            continue;
+        }
+        if src.is_dir() {
+            let _ = copy_dir_recursive(&src, &dest);
+        } else {
+            let _ = fs::copy(&src, &dest);
+        }
+    }
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dest = to.join(entry.file_name());
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest)?;
+        } else if !dest.exists() {
+            fs::copy(&src, &dest)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn get_data_path_from_env() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        let path = PathBuf::from(appdata).join("com.laoy.crimson");
+        // Canonical data dir: must match tauri.conf.json `identifier` (com.laoy.crimsons).
+        let path = PathBuf::from(&appdata).join("com.laoy.crimsons");
+        for legacy_name in ["com.laoy.crimson", "com.laoy.crimons"] {
+            let legacy = PathBuf::from(&appdata).join(legacy_name);
+            if legacy.exists() && legacy != path {
+                migrate_legacy_appdata(&legacy, &path);
+            }
+        }
         if !path.exists() {
             let _ = fs::create_dir_all(&path);
         }

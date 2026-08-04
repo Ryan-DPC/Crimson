@@ -27,6 +27,17 @@ pub struct SpotifyState {
     pub is_liked: bool,
 }
 
+/// Spotify may return `smart_shuffle` as a bool or (rarely) a non-empty array.
+fn parse_smart_shuffle(json: &serde_json::Value) -> bool {
+    if json["smart_shuffle"].as_bool() == Some(true) {
+        return true;
+    }
+    if let Some(arr) = json["smart_shuffle"].as_array() {
+        return !arr.is_empty();
+    }
+    false
+}
+
 pub struct SpotifyClient {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
@@ -62,6 +73,14 @@ impl SpotifyClient {
                 self.display_name = json["display_name"].as_str().map(|s| s.to_string());
             }
         }
+        // data.json is the canonical place the UI writes Client ID / Secret.
+        let app = crate::storage::load_data_from_path(crate::storage::get_data_path_from_env());
+        if self.client_id.is_empty() && !app.spotify_client_id.is_empty() {
+            self.client_id = app.spotify_client_id;
+        }
+        if self.client_secret.is_empty() && !app.spotify_client_secret.is_empty() {
+            self.client_secret = app.spotify_client_secret;
+        }
     }
 
     pub fn save(&self) {
@@ -78,6 +97,20 @@ impl SpotifyClient {
             "display_name": self.display_name,
         });
         let _ = std::fs::write(path, json.to_string());
+
+        // Mirror credentials into data.json so the UI and sidecar stay aligned
+        // without ever putting the secret in localStorage or URL queries.
+        if !self.client_id.is_empty() || !self.client_secret.is_empty() {
+            let path = crate::storage::get_data_path_from_env();
+            let mut data = crate::storage::load_data_from_path(path.clone());
+            if !self.client_id.is_empty() {
+                data.spotify_client_id = self.client_id.clone();
+            }
+            if !self.client_secret.is_empty() {
+                data.spotify_client_secret = self.client_secret.clone();
+            }
+            crate::storage::save_data_to_path(path, &data);
+        }
     }
 }
 
@@ -97,7 +130,7 @@ pub struct SpotifyService {
 
 impl SpotifyService {
     pub async fn update_tokens_js(&self) {
-        let (access, refresh, id, secret) = {
+        let (access, refresh, id, _secret) = {
             let lock = self.client.read().await;
             (lock.access_token.clone(), lock.refresh_token.clone(), lock.client_id.clone(), lock.client_secret.clone())
         };
@@ -115,6 +148,7 @@ impl SpotifyService {
             "com.laoy.streamdock.crimson.sdPlugin"
         ];
 
+        // Never inject client_secret into plugin JS — the sidecar alone holds it.
         let js_content = format!(
             "if (typeof $websocket !== 'undefined' && $websocket && $websocket.readyState === 1) {{\n\
                 if (!window.crimsonInjected) {{\n\
@@ -126,8 +160,6 @@ impl SpotifyService {
                         refreshToken: '{}',\n\
                         clientId: '{}',\n\
                         client_id: '{}',\n\
-                        clientSecret: '{}',\n\
-                        client_secret: '{}',\n\
                         authorized: true,\n\
                         authenticated: true\n\
                     }});\n\
@@ -147,8 +179,6 @@ impl SpotifyService {
             refresh.clone().unwrap_or_default(),
             id,
             id,
-            secret,
-            secret,
             playlists_json,
             devices_json
         );
@@ -388,6 +418,50 @@ impl SpotifyService {
                 if let Some(token) = access_token {
                     match Self::fetch_current_playback(&token).await {
                         Ok(mut state) => {
+                            // Keep last cover during brief empty interim states so StreamDock
+                            // does not flash the default Spotify logo.
+                            if state.album_art.is_empty() {
+                                if let Some(prev) = last_state.as_ref() {
+                                    if !prev.album_art.is_empty()
+                                        && (state.is_playing || !state.track_id.is_empty() || prev.is_playing)
+                                    {
+                                        state.album_art = prev.album_art.clone();
+                                    }
+                                }
+                            }
+
+                            if !state.shuffle_state {
+                                self_arc.smart_shuffle_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                            } else if state.smart_shuffle {
+                                // Don't resurrect Smart during the post-command settle window
+                                // after the user pressed Smart → Off (API can lag).
+                                let settling = self_arc.last_command_time.lock().ok()
+                                    .and_then(|m| m.get("shuffle").copied())
+                                    .map(|t| t.elapsed() < std::time::Duration::from_secs(4))
+                                    .unwrap_or(false);
+                                if !settling || self_arc.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed) {
+                                    self_arc.smart_shuffle_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
+                            // Prefer optimistic Off while settling after Smart → Off.
+                            let prefer_off = {
+                                let settling = self_arc.last_command_time.lock().ok()
+                                    .and_then(|m| m.get("shuffle").copied())
+                                    .map(|t| t.elapsed() < std::time::Duration::from_secs(4))
+                                    .unwrap_or(false);
+                                settling
+                                    && !self_arc.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed)
+                                    && self_arc.cached_state.read().await.as_ref().map(|c| !c.shuffle_state).unwrap_or(false)
+                            };
+                            if prefer_off {
+                                state.shuffle_state = false;
+                                state.smart_shuffle = false;
+                            } else {
+                                state.smart_shuffle = state.smart_shuffle
+                                    || (state.shuffle_state
+                                        && self_arc.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed));
+                            }
+
                             {
                                 let mut cache = self_arc.cached_state.write().await;
                                 *cache = Some(state.clone());
@@ -405,12 +479,6 @@ impl SpotifyService {
                             } else {
                                 state.volume_percent = self_arc.cached_volume.load(std::sync::atomic::Ordering::Relaxed);
                             }
-                            if !state.shuffle_state {
-                                self_arc.smart_shuffle_active.store(false, std::sync::atomic::Ordering::Relaxed);
-                            } else if state.smart_shuffle {
-                                self_arc.smart_shuffle_active.store(true, std::sync::atomic::Ordering::Relaxed);
-                            }
-                            state.smart_shuffle = state.smart_shuffle || (state.shuffle_state && self_arc.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed));
 
                             let is_idle = state.track_id.is_empty();
                             
@@ -489,7 +557,9 @@ impl SpotifyService {
 
                             if first_poll || changed || force_poll {
                                 let _ = self_sender.0.send(state_json.clone());
-                                if (first_poll || force_poll || image_changed) && !state.album_art.is_empty() {
+                                // Only push cover when the URL actually changed (or first paint).
+                                // Rebroadcasting on every force_poll caused default-logo flicker.
+                                if (first_poll || image_changed) && !state.album_art.is_empty() {
                                     let image_broadcast = json!({
                                         "event": "setImageBroadcast",
                                         "payload": { "image": state.album_art.clone() }
@@ -627,7 +697,7 @@ impl SpotifyService {
             has_token: true,
             volume_percent: json["device"]["volume_percent"].as_u64().unwrap_or(50) as u32,
             shuffle_state: json["shuffle_state"].as_bool().unwrap_or(false),
-            smart_shuffle: json["smart_shuffle"].as_bool().unwrap_or(false),
+            smart_shuffle: parse_smart_shuffle(&json),
             repeat_state: json["repeat_state"].as_str().unwrap_or("off").to_string(),
             track_uri: track["uri"].as_str().unwrap_or("").to_string(),
             track_id: track["id"].as_str().unwrap_or("").to_string(),
@@ -962,8 +1032,10 @@ impl SpotifyService {
                 "POST"
             },
             "shuffle" => {
-                // Always read real Spotify state - StreamDeck sends state=0 for all presses
-                // when using setImage (not setState), so params["payload"]["state"] is unreliable.
+                // StreamDeck multi-state button: Off (0) → Shuffle (1) → Smart (2) → Off.
+                // The Web API only supports shuffle on/off; Smart Shuffle cannot be enabled
+                // via API (Spotify limitation). We still cycle a local 3rd state for UX, and
+                // when the API reports real smart_shuffle we must turn it fully off.
                 let mut playback = {
                     let cache = self.cached_state.read().await;
                     cache.clone().unwrap_or_default()
@@ -973,28 +1045,53 @@ impl SpotifyService {
                 } else if playback.smart_shuffle {
                     self.smart_shuffle_active.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                playback.smart_shuffle = playback.smart_shuffle || (playback.shuffle_state && self.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed));
+                playback.smart_shuffle = playback.smart_shuffle
+                    || (playback.shuffle_state
+                        && self.smart_shuffle_active.load(std::sync::atomic::Ordering::Relaxed));
 
                 println!(
                     "[Shuffle] Current state: shuffle_state={}, smart_shuffle={}",
                     playback.shuffle_state, playback.smart_shuffle
                 );
 
+                let mut next = playback.clone();
                 if !playback.shuffle_state {
                     // Off -> On (Standard)
                     println!("[Shuffle] Button pressed. Transition: Off -> On (Standard)");
                     url = "https://api.spotify.com/v1/me/player/shuffle?state=true".to_string();
                     self.smart_shuffle_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                    next.shuffle_state = true;
+                    next.smart_shuffle = false;
                 } else if !playback.smart_shuffle {
-                    // On (Standard) -> On (Smart Shuffle)
-                    println!("[Shuffle] Button pressed. Transition: On (Standard) -> Smart Shuffle");
+                    // On (Standard) -> Smart Shuffle (local UX only; API cannot enable Smart)
+                    println!("[Shuffle] Button pressed. Transition: On (Standard) -> Smart Shuffle (local; API cannot enable Smart Shuffle)");
+                    // Re-assert shuffle on so a laggy client still has shuffle active, then
+                    // mark Smart locally so the next press exits cleanly.
                     url = "https://api.spotify.com/v1/me/player/shuffle?state=true".to_string();
                     self.smart_shuffle_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                    next.shuffle_state = true;
+                    next.smart_shuffle = true;
                 } else {
-                    // On (Smart Shuffle) -> Off
+                    // On (Smart Shuffle) -> Off — works for both real API Smart and local flag
                     println!("[Shuffle] Button pressed. Transition: Smart Shuffle -> Off");
                     url = "https://api.spotify.com/v1/me/player/shuffle?state=false".to_string();
                     self.smart_shuffle_active.store(false, std::sync::atomic::Ordering::Relaxed);
+                    next.shuffle_state = false;
+                    next.smart_shuffle = false;
+                }
+                // Optimistic cache so the next keypress sees the new mode immediately
+                // (background poll used to overwrite cache before smart merge).
+                {
+                    let cache_art = self.cached_state.clone();
+                    let next_state = next.clone();
+                    let sender = self.sender.clone();
+                    tokio::spawn(async move {
+                        {
+                            let mut cache = cache_art.write().await;
+                            *cache = Some(next_state.clone());
+                        }
+                        let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": next_state }).to_string());
+                    });
                 }
                 "PUT"
             },
@@ -1214,17 +1311,42 @@ impl SpotifyService {
              let sender = self.sender.clone();
              let token_refresh = token.clone();
              let smart_active = self.smart_shuffle_active.clone();
+             let cached_state = self.cached_state.clone();
              tokio::spawn(async move {
                  // Multiple polls to catch the state change (Spotify API can be laggy)
                  for delay in [500, 1500, 3000] {
                      tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                      if let Ok(mut state) = Self::fetch_current_playback(&token_refresh).await {
+                          // Preserve cover art across interim empties (avoids logo flicker).
+                          if state.album_art.is_empty() {
+                              if let Some(prev) = cached_state.read().await.as_ref() {
+                                  if !prev.album_art.is_empty() {
+                                      state.album_art = prev.album_art.clone();
+                                  }
+                              }
+                          }
                           if !state.shuffle_state {
                               smart_active.store(false, std::sync::atomic::Ordering::Relaxed);
-                          } else if state.smart_shuffle {
+                          } else if state.smart_shuffle
+                              && smart_active.load(std::sync::atomic::Ordering::Relaxed)
+                          {
+                              // Only reinforce Smart if we already consider it active —
+                              // never resurrect it after an intentional Off.
                               smart_active.store(true, std::sync::atomic::Ordering::Relaxed);
                           }
-                          state.smart_shuffle = state.smart_shuffle || (state.shuffle_state && smart_active.load(std::sync::atomic::Ordering::Relaxed));
+                          let prefer_off = !smart_active.load(std::sync::atomic::Ordering::Relaxed)
+                              && cached_state.read().await.as_ref().map(|c| !c.shuffle_state).unwrap_or(false);
+                          if prefer_off {
+                              state.shuffle_state = false;
+                              state.smart_shuffle = false;
+                          } else {
+                              state.smart_shuffle = state.smart_shuffle
+                                  || (state.shuffle_state && smart_active.load(std::sync::atomic::Ordering::Relaxed));
+                          }
+                          {
+                              let mut cache = cached_state.write().await;
+                              *cache = Some(state.clone());
+                          }
                          let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": state }).to_string());
                      }
                  }
@@ -1251,10 +1373,18 @@ impl SpotifyService {
     }
 
     pub async fn exchange_code(&self, code: String) -> Result<(), Box<dyn std::error::Error>> {
-        let (client_id, client_secret) = {
+        let (mut client_id, mut client_secret) = {
             let lock = self.client.read().await;
             (lock.client_id.clone(), lock.client_secret.clone())
         };
+        if client_id.is_empty() || client_secret.is_empty() {
+            let data = crate::storage::load_data_from_path(crate::storage::get_data_path_from_env());
+            if client_id.is_empty() { client_id = data.spotify_client_id; }
+            if client_secret.is_empty() { client_secret = data.spotify_client_secret; }
+            if !client_id.is_empty() && !client_secret.is_empty() {
+                self.set_client_credentials(client_id.clone(), client_secret.clone()).await;
+            }
+        }
 
         let log_path = crate::storage::get_data_dir().join("streamdock.log");
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
