@@ -107,12 +107,31 @@ pub fn run() {
       }
 
       let data = storage::load_data(&handle);
+
+      // Heal stale HKCU Run entries (dead F:\ debug paths, GUI --autostart, etc.).
+      let run_stale = commands::read_server_registry_run_for_heal()
+          .map(|v| !commands::run_value_points_to_existing_exe_for_heal(&v))
+          .unwrap_or(false);
+      if data.server_launch_on_startup || run_stale {
+          match commands::ensure_server_autostart_registered(&handle) {
+              Ok(()) => {}
+              Err(e) => {
+                  if let Ok(app_data) = path_resolver.app_data_dir() {
+                      let log_path = app_data.join("launch_debug.log");
+                      if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                          use std::io::Write;
+                          let _ = writeln!(file, "[{:?}] autostart heal failed: {}", std::time::SystemTime::now(), e);
+                      }
+                  }
+              }
+          }
+      }
       
       let args: Vec<String> = std::env::args().collect();
       let is_autostart = args.contains(&"--autostart".to_string());
       
-      // Restore window geometry
-      if let Some(window) = app.get_webview_window("main") {
+      // Restore window geometry (label must match tauri.conf.json)
+      if let Some(window) = app.get_webview_window("main_window") {
           if let (Some(x), Some(y)) = (data.window_x, data.window_y) {
               let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
           }

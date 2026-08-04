@@ -38,36 +38,98 @@ pub fn crimson_toggle_server_autostart(app: tauri::AppHandle, enable: bool) -> R
   data.server_launch_on_startup = enable;
   storage::save_data(&app, &data);
 
-  if let Ok(exe_path) = std::env::current_exe() {
-      let mut exe_path_str = exe_path.to_string_lossy().to_string();
-      if exe_path_str.starts_with("\\\\?\\") {
-          exe_path_str = exe_path_str[4..].to_string();
-      }
-      
-      if enable {
-          create_server_registry_run(&exe_path_str)
-      } else {
-          remove_server_registry_run()
-      }
+  if enable {
+      ensure_server_autostart_registered(&app)
   } else {
-      Err("Could not find main executable for autostart".to_string())
+      remove_server_registry_run()
   }
 }
 
+/// Resolve a release/installed sidecar suitable for HKCU Run (never a debug
+/// binary that exits without CRIMSON_DEV=1).
+fn resolve_autostart_server_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let strip = |p: std::path::PathBuf| -> std::path::PathBuf {
+        let s = p.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            std::path::PathBuf::from(rest)
+        } else {
+            p
+        }
+    };
+    let is_debug_build = |p: &std::path::Path| -> bool {
+        p.components().any(|c| {
+            c.as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("debug")
+        }) && p.components().any(|c| {
+            c.as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("target")
+        })
+    };
+
+    // Prefer well-known install locations first — stable across renames/drives.
+    let installed_candidates = [
+        r"C:\Program Files\CRIMSONS\crimson-server.exe",
+        r"C:\Program Files\CRIMSON\crimson-server.exe",
+        r"C:\Program Files (x86)\CRIMSONS\crimson-server.exe",
+        r"C:\Program Files (x86)\CRIMSON\crimson-server.exe",
+    ];
+    for cand in installed_candidates {
+        let p = std::path::PathBuf::from(cand);
+        if p.is_file() {
+            return Ok(p);
+        }
+    }
+
+    if let Some(p) = find_server_path(app) {
+        let p = strip(p);
+        if p.is_file() && !is_debug_build(&p) {
+            return Ok(p);
+        }
+        if is_debug_build(&p) {
+            return Err(
+                "Autostart refuses debug crimson-server.exe (needs CRIMSON_DEV=1 and dies at login). \
+                 Install CRIMSONS or build a release sidecar, then re-enable."
+                    .into(),
+            );
+        }
+    }
+
+    Err("Could not locate a release crimson-server.exe for autostart".into())
+}
+
+fn normalize_exe_path_str(path: &std::path::Path) -> String {
+    let mut s = path.to_string_lossy().into_owned();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        s = rest.to_string();
+    }
+    s
+}
+
+/// Write HKCU Run so login starts the sidecar directly (not the Tauri UI).
 fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
     use std::process::Command;
-    
-    // Append --autostart so the Tauri app runs hidden
+
+    // PowerShell keeps the surrounding quotes that Run needs for "Program Files".
+    // (reg.exe /d via CreateProcess strips them.) Escape single quotes for PS literals.
+    let escaped = exe_path.replace('\'', "''");
     let ps_command = format!(
-        r#"Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "CrimsonServer" -Value '"{}" --autostart'"#,
-        exe_path
+        r#"Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -Value '"{}"'"#,
+        escaped
     );
 
     let output = Command::new("powershell")
-        .args(&["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_command])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &ps_command,
+        ])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+        .map_err(|e| format!("Failed to write Run key: {}", e))?;
 
     if output.status.success() {
         Ok(())
@@ -79,14 +141,20 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
 
 fn remove_server_registry_run() -> Result<(), String> {
     use std::process::Command;
-    
-    let ps_command = r#"Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "CrimsonServer" -ErrorAction SilentlyContinue"#;
+
+    let ps_command = r#"Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue"#;
 
     let output = Command::new("powershell")
-        .args(&["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_command])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            ps_command,
+        ])
+        .creation_flags(0x08000000)
         .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+        .map_err(|e| format!("Failed to remove Run key: {}", e))?;
 
     if output.status.success() {
         Ok(())
@@ -96,48 +164,129 @@ fn remove_server_registry_run() -> Result<(), String> {
     }
 }
 
+fn read_server_registry_run() -> Option<String> {
+    use std::process::Command;
+
+    let ps_command = r#"$v = Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue; if ($null -ne $v) { Write-Output $v }"#;
+
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            ps_command,
+        ])
+        .creation_flags(0x08000000)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        None
+    } else {
+        Some(stdout)
+    }
+}
+
+fn run_value_points_to_existing_exe(run_value: &str) -> bool {
+    // Strip surrounding quotes and optional args (legacy "...\crimson.exe" --autostart).
+    let trimmed = run_value.trim();
+    let path = if trimmed.starts_with('"') {
+        trimmed
+            .trim_start_matches('"')
+            .split('"')
+            .next()
+            .unwrap_or("")
+    } else {
+        trimmed.split_whitespace().next().unwrap_or("")
+    };
+    !path.is_empty() && std::path::Path::new(path).is_file()
+}
+
+/// Pub wrappers for setup-time heal checks (keeps helpers private otherwise).
+pub fn read_server_registry_run_for_heal() -> Option<String> {
+    read_server_registry_run()
+}
+
+pub fn run_value_points_to_existing_exe_for_heal(run_value: &str) -> bool {
+    run_value_points_to_existing_exe(run_value)
+}
+
+/// Re-write the Run key to a live release sidecar when the setting is on.
+/// Call on app setup so drive moves / old debug paths self-heal.
+pub fn ensure_server_autostart_registered(app: &tauri::AppHandle) -> Result<(), String> {
+    let path = resolve_autostart_server_path(app)?;
+    let path_str = normalize_exe_path_str(&path);
+    let desired = format!("\"{}\"", path_str);
+
+    if let Some(current) = read_server_registry_run() {
+        if current.trim() == desired && run_value_points_to_existing_exe(&current) {
+            return Ok(());
+        }
+        // Stale / wrong target (dead F:\ debug path, GUI --autostart, etc.)
+        log_to_launch_file(
+            app,
+            &format!(
+                "Healing CrimsonServer Run key: {:?} -> {}",
+                current, desired
+            ),
+        );
+    } else {
+        log_to_launch_file(
+            app,
+            &format!("Registering CrimsonServer Run key -> {}", desired),
+        );
+    }
+
+    create_server_registry_run(&path_str)
+}
+
 #[tauri::command]
 pub fn crimson_get_server_autostart_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    use std::process::Command;
     use serde_json::json;
-    
+
     let mut info = json!({
         "is_enabled": false,
         "server_path": Option::<String>::None,
+        "run_value": Option::<String>::None,
         "task_exists": false,
+        "run_path_valid": false,
         "errors": Vec::<String>::new()
     });
-    
-    // Check if server executable exists
-    if let Some(server_path) = find_server_path(&app) {
-        info["server_path"] = json!(server_path.to_string_lossy().to_string());
-        
-        if !server_path.exists() {
-            info["errors"].as_array_mut().unwrap().push("Server executable not found".into());
+
+    match resolve_autostart_server_path(&app) {
+        Ok(server_path) => {
+            info["server_path"] = json!(normalize_exe_path_str(&server_path));
+        }
+        Err(e) => {
+            if let Some(fallback) = find_server_path(&app) {
+                info["server_path"] = json!(normalize_exe_path_str(&fallback));
+            }
+            info["errors"].as_array_mut().unwrap().push(e.into());
+        }
+    }
+
+    if let Some(run_val) = read_server_registry_run() {
+        info["task_exists"] = json!(true);
+        info["run_value"] = json!(run_val.clone());
+        info["run_path_valid"] = json!(run_value_points_to_existing_exe(&run_val));
+        if !run_value_points_to_existing_exe(&run_val) {
+            info["errors"].as_array_mut().unwrap().push(
+                "HKCU Run CrimsonServer points to a missing executable — re-enable server autostart"
+                    .into(),
+            );
         }
     } else {
-        info["errors"].as_array_mut().unwrap().push("Could not locate server executable".into());
+        info["task_exists"] = json!(false);
     }
-    
-    // Check if Registry key exists
-    let ps_command = r#"
-$val = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "CrimsonServer" -ErrorAction SilentlyContinue
-if ($null -ne $val) { Write-Host "EXISTS" } else { Write-Host "NOTFOUND" }
-"#;
-    
-    let output = Command::new("powershell")
-        .args(&["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_command])
-        .creation_flags(0x08000000)
-        .output()
-        .map_err(|e| format!("Failed to check task: {}", e))?;
-    
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    info["task_exists"] = json!(stdout.contains("EXISTS"));
-    
-    // Check AppData setting
+
     let data = storage::load_data(&app);
     info["is_enabled"] = json!(data.server_launch_on_startup);
-    
+
     Ok(info)
 }
 
