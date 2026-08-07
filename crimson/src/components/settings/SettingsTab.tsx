@@ -671,12 +671,6 @@ const SettingsTab = () => {
                                                     Associer Spotify
                                                 </button>
                                             )}
-
-                                            {plugin.key === 'discord' && isEnabled && (
-                                                <div className="w-full mt-4 py-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase tracking-widest text-center rounded-xl">
-                                                    Détection Automatique (IPC)
-                                                </div>
-                                            )}
                                             
                                             {requiresDeckPlugin && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">

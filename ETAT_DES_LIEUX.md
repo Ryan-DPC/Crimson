@@ -38,12 +38,15 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 * Cycle shuffle Off → Standard → Smart (flag local) → Off ; **Smart Shuffle API impossible** (limitation amont).
 * Déduplication d’images StreamDock.
 
-### Discord (soigné 2026-08-07)
+### Discord (soigné 2026-08-07, statut vocal 2026-08-07)
 * Actions livrées : mute, deafen, camera, join voice (PI `channelId`).
 * Soundboard / screenshare retirés du manifeste et de l’UI Home (fragiles / non branchés).
 * KeyDown Discord géré côté bridge serveur (comme Spotify) + fallback plugin.
 * Code mort `core/` retiré du plugin Discord.
+* **IPC :** handshake attend `READY`, frames lues correctement, subscribe `VOICE_SETTINGS_UPDATE_2` (format `evt` racine), mute/deaf via `SET_VOICE_SETTINGS_2`, broadcast `DISCORD_STATE` immédiat + heartbeat UI.
+* Hub Settings : bandeau « Détection Automatique (IPC) » retiré.
 * **Non injecté par défaut** — `.\scripts\inject_plugins.ps1 -IncludeDiscord`.
+* **Limite :** savoir si on est « en vocal » (`in_voice` / salon) peut exiger le scope OAuth `rpc` côté app Discord ; mute/deaf locaux marchent en IPC (`rpc.local`).
 
 ### Identité AppData
 * Canonique : **`com.laoy.crimsons`** (+ migration au démarrage).

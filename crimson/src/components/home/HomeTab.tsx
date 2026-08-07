@@ -285,17 +285,27 @@ export default function HomeTab() {
                                 <MessageSquare className="w-5 h-5 text-indigo-500" />
                             </div>
                             <div className="flex flex-col flex-1 min-w-0">
-                                <span className="text-white font-bold text-xs truncate">Statut Vocal</span>
+                                <span className="text-white font-bold text-xs truncate">
+                                    {discordState?.username ? `@${discordState.username}` : 'Statut Vocal'}
+                                </span>
                                 <div className="flex items-center gap-1.5 mt-0.5">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${discordState?.connected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                                    <div className={`w-1.5 h-1.5 rounded-full ${
+                                        discordState?.connected
+                                            ? (discordState?.in_voice ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-amber-400')
+                                            : 'bg-red-500'
+                                    }`} />
                                     <span className="text-white/50 text-[10px] truncate uppercase font-bold tracking-widest">
-                                        {discordState?.connected ? 'Actif' : 'En attente'}
+                                        {!discordState?.connected
+                                            ? 'Discord introuvable'
+                                            : discordState?.in_voice
+                                                ? 'En vocal'
+                                                : 'Connecté'}
                                     </span>
                                 </div>
                             </div>
                         </div>
                         
-                        <div className={`grid grid-cols-3 gap-2 mt-1 transition-all duration-500 ${discordConnected ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none'}`}>
+                        <div className={`grid grid-cols-3 gap-2 mt-1 transition-all duration-500 ${discordConnected || discordState?.connected ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none'}`}>
                             <button
                                 onClick={() => discordCommand("toggleMute")}
                                 className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all hover:scale-[1.02] active:scale-95 ${
