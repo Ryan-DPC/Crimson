@@ -124,10 +124,22 @@ impl DiscordService {
                                                 let _ = Self::send_command(&mut pipe, "SET_VOICE_SETTINGS", json!({ "video_enabled": !current_camera })).await;
                                             }
                                             "joinVoiceChannel" => {
-                                                if let Some(channel_id) = params.get("payload").and_then(|p| p.get("settings")).and_then(|s| s.get("channelId")).and_then(|c| c.as_str()).or_else(|| params.get("channelId").and_then(|c| c.as_str())) {
-                                                    let current_chan = state_clone.read().await.current_channel_id.clone();
-                                                    let target = if current_chan.as_deref() == Some(channel_id) { None } else { Some(channel_id) };
-                                                    let _ = Self::send_command(&mut pipe, "SELECT_VOICE_CHANNEL", json!({ "channel_id": target, "force": true })).await;
+                                                let channel_id = params.get("payload").and_then(|p| p.get("settings")).and_then(|s| s.get("channelId")).and_then(|c| c.as_str())
+                                                    .or_else(|| params.get("payload").and_then(|p| p.get("channelId")).and_then(|c| c.as_str()))
+                                                    .or_else(|| params.get("settings").and_then(|s| s.get("channelId")).and_then(|c| c.as_str()))
+                                                    .or_else(|| params.get("channelId").and_then(|c| c.as_str()));
+                                                if let Some(channel_id) = channel_id {
+                                                    if channel_id.is_empty() {
+                                                        tracing::warn!("[DISCORD] joinVoiceChannel ignored: empty channelId");
+                                                    } else {
+                                                        let current_chan = state_clone.read().await.current_channel_id.clone();
+                                                        let target = if current_chan.as_deref() == Some(channel_id) { None } else { Some(channel_id) };
+                                                        let _ = Self::send_command(&mut pipe, "SELECT_VOICE_CHANNEL", json!({ "channel_id": target, "force": true })).await;
+                                                        let mut s = state_clone.write().await;
+                                                        s.current_channel_id = target.map(|c| c.to_string());
+                                                    }
+                                                } else {
+                                                    tracing::warn!("[DISCORD] joinVoiceChannel ignored: missing channelId (configure Property Inspector)");
                                                 }
                                             }
                                             "playSoundboardSound" => {

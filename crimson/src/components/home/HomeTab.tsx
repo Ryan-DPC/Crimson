@@ -1,7 +1,7 @@
 import { useLCU } from '../../contexts/LCUContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getChampIcon } from '../../utils/lolDisplay';
-import { Disc3, MessageSquare, Laptop, Music, MicOff, Mic, Headphones, MonitorPlay, MonitorSpeaker } from 'lucide-react';
+import { Disc3, MessageSquare, Laptop, Music, MicOff, Mic, Headphones, MonitorPlay } from 'lucide-react';
 
 
 // Reusable animated toggle component
@@ -295,7 +295,7 @@ export default function HomeTab() {
                             </div>
                         </div>
                         
-                        <div className={`grid grid-cols-2 gap-2 mt-1 transition-all duration-500 ${discordConnected ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none'}`}>
+                        <div className={`grid grid-cols-3 gap-2 mt-1 transition-all duration-500 ${discordConnected ? 'opacity-100 scale-100' : 'opacity-40 pointer-events-none'}`}>
                             <button
                                 onClick={() => discordCommand("toggleMute")}
                                 className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all hover:scale-[1.02] active:scale-95 ${
@@ -330,14 +330,6 @@ export default function HomeTab() {
                             >
                                 <MonitorPlay className="w-4 h-4" />
                                 <span className="text-[9px] font-black uppercase tracking-wider">{discordState?.is_camera_on ? 'Cam ON' : 'Cam OFF'}</span>
-                            </button>
-                
-                            <button
-                                onClick={() => discordCommand("toggleScreenshare")}
-                                className="flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-xl border border-white/5 transition-all hover:scale-[1.02] active:scale-95"
-                            >
-                                <MonitorSpeaker className="w-4 h-4" />
-                                <span className="text-[9px] font-black uppercase tracking-wider">Stream</span>
                             </button>
                         </div>
                     </div>

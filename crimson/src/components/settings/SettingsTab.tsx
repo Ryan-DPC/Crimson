@@ -144,12 +144,11 @@ const SettingsTab = () => {
 
     useEffect(() => {
         const checkPlugins = async () => {
+            // Pack de base : LoL + Spotify. Discord = optionnel (pas Hue/Twitch en hub).
             const ids = {
                 leagueOfLegends: "com.laoy.streamdock.crimson",
                 spotify: "com.laoy.streamdock.spotify",
                 discord: "com.laoy.streamdock.discord",
-                twitch: "com.laoy.streamdock.twitch",
-                hue: "com.laoy.streamdock.hue"
             };
             const installed: Record<string, boolean> = {};
             for (const [key, id] of Object.entries(ids)) {
@@ -173,8 +172,6 @@ const SettingsTab = () => {
                 leagueOfLegends: true,
                 spotify: false,
                 discord: false,
-                twitch: false,
-                hue: false
             });
         }
     }, [appData]);
@@ -589,39 +586,28 @@ const SettingsTab = () => {
                                     {
                                         key: 'leagueOfLegends',
                                         name: 'League of Legends',
-                                        desc: 'Contrôle de l\'auto-accept et de la sélection des champions',
-                                        comingSoon: false,
+                                        desc: 'Auto-accept, pick/ban et contrôle StreamDock (pack de base)',
+                                        tier: 'base' as const,
                                     },
                                     {
                                         key: 'spotify',
                                         name: 'Spotify',
-                                        desc: 'Contrôle de la lecture, de la couverture et des infos Spotify',
-                                        comingSoon: false,
+                                        desc: 'Contrôle de lecture et covers (pack de base, Premium)',
+                                        tier: 'base' as const,
                                     },
                                     {
                                         key: 'discord',
                                         name: 'Discord',
-                                        desc: 'Gestion des raccourcis micro, deafen et statut Discord',
-                                        comingSoon: false,
+                                        desc: 'Mute / deafen / caméra — plugin optionnel (Premium)',
+                                        tier: 'optional' as const,
                                     },
-                                    {
-                                        key: 'twitch',
-                                        name: 'Twitch (Soon)',
-                                        desc: 'Bientôt disponible — chat, pubs et compteur de viewers',
-                                        comingSoon: true,
-                                    },
-                                    {
-                                        key: 'hue',
-                                        name: 'Philips Hue (Soon)',
-                                        desc: 'Bientôt disponible — contrôle d\'éclairage ambiant',
-                                        comingSoon: true,
-                                    }
                                 ].map((plugin) => {
-                                    const isComingSoon = plugin.comingSoon;
                                     const isPremiumPlugin = plugin.key === 'spotify' || plugin.key === 'discord';
                                     const isInstalled = !!pluginsInstalled[plugin.key];
-                                    let isEnabled = isComingSoon ? false : (pluginsState[plugin.key] ?? true);
-                                    let isDisabled = isComingSoon || !isInstalled;
+                                    // Discord: intégration app IPC même sans plugin StreamDock installé
+                                    const requiresDeckPlugin = plugin.key !== 'discord';
+                                    let isEnabled = pluginsState[plugin.key] ?? (plugin.key === 'leagueOfLegends');
+                                    let isDisabled = requiresDeckPlugin && !isInstalled;
                                     
                                     if (isPremiumPlugin && !isPremium) {
                                         isEnabled = false;
@@ -633,28 +619,34 @@ const SettingsTab = () => {
                                             key={plugin.key} 
                                             className={`bg-black/20 p-6 rounded-3xl border border-white/5 flex flex-col justify-between relative group overflow-hidden ${isDisabled ? 'opacity-50 grayscale' : ''}`}
                                         >
-                                            {/* Subtle ambient light behind the card */}
-                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isComingSoon ? 'from-amber-500/5 to-transparent' : isInstalled ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
+                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isInstalled || !requiresDeckPlugin ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
                                             
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className={`text-[9px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md border ${
-                                                    isComingSoon
-                                                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                                        : isInstalled 
+                                                    isPremiumPlugin && !isPremium
+                                                        ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                                                        : isInstalled || !requiresDeckPlugin
                                                         ? isEnabled 
                                                             ? 'bg-green-500/10 border-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.1)]' 
                                                             : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
                                                         : 'bg-white/5 border-white/5 text-white/30'
                                                 }`}>
-                                                    {isComingSoon ? "Bientôt disponible" : isPremiumPlugin && !isPremium ? "Premium Requis" : isInstalled ? (isEnabled ? "Actif & Opérationnel" : "Désactivé") : "Non détecté"}
+                                                    {isPremiumPlugin && !isPremium
+                                                        ? "Premium Requis"
+                                                        : isInstalled || !requiresDeckPlugin
+                                                            ? (isEnabled ? "Actif & Opérationnel" : "Désactivé")
+                                                            : "Non détecté"}
                                                 </span>
                                                 
-                                                {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
+                                                {plugin.tier === 'optional' && (
+                                                    <span className="text-[9px] font-black text-white/25 uppercase tracking-widest">Optionnel</span>
+                                                )}
+                                                {requiresDeckPlugin && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-red-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Plugin requis
                                                     </div>
                                                 )}
-                                                {!isComingSoon && isPremiumPlugin && !isPremium && (
+                                                {isPremiumPlugin && !isPremium && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-orange-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Lock
                                                     </div>
@@ -686,20 +678,23 @@ const SettingsTab = () => {
                                                 </div>
                                             )}
                                             
-                                            {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
+                                            {requiresDeckPlugin && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
                                                     Installez ce plugin sur votre Stream Deck pour l'activer.
                                                 </p>
                                             )}
-                                            {isComingSoon && (
-                                                <p className="text-[9px] text-amber-500/40 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Intégration en cours — non disponible pour le moment.
+                                            {plugin.key === 'discord' && !isInstalled && isPremium && (
+                                                <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
+                                                    Plugin StreamDock optionnel — inject : -IncludeDiscord
                                                 </p>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
+                            <p className="mt-8 text-[10px] text-white/25 uppercase font-bold tracking-widest leading-relaxed">
+                                Pack de base : LoL + Spotify. Hue, Twitch et d’autres intégrations arriveront comme plugins externes téléchargeables (gratuits ou premium — communauté).
+                            </p>
                         </section>
                     </div>
                 )}
