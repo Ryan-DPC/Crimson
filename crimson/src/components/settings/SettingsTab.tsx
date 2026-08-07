@@ -90,8 +90,8 @@ const SettingsTab = () => {
     };
 
     const handleConnectSpotify = async () => {
-        const clientId = spotifyIdInput.trim();
-        const clientSecret = spotifySecretInput.trim();
+        const clientId = spotifyIdInput.trim() || (appData?.spotifyClientId || '').trim();
+        const clientSecret = spotifySecretInput.trim() || (appData?.spotifyClientSecret || '').trim();
 
         if (!clientId || !clientSecret) {
             setSpotifyError("Renseignez d'abord le Client ID et le Client Secret de votre application Spotify.");
@@ -419,7 +419,7 @@ const SettingsTab = () => {
                                 </div>
                             </div>
 
-                            {/* SPOTIFY — identifiants propres a chaque utilisateur */}
+                            {/* SPOTIFY — setup une fois ; champs masqués une fois connecté */}
                             <div className="bg-white/[0.02] border border-white/5 p-10 rounded-[2.5rem] space-y-6">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-4">
@@ -428,71 +428,81 @@ const SettingsTab = () => {
                                         </div>
                                         <div>
                                             <h3 className="text-sm font-black text-white uppercase tracking-widest font-mono">Spotify</h3>
-                                            <span className="text-[9px] text-white/30 font-bold uppercase tracking-widest">Votre application, vos identifiants</span>
+                                            <span className="text-[9px] text-white/30 font-bold uppercase tracking-widest">
+                                                {(spotifyConnected || spotifyState?.has_token) ? 'Compte lié' : 'Votre application, vos identifiants'}
+                                            </span>
                                         </div>
                                     </div>
-                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${spotifyConnected ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                                        <Activity className={`w-3.5 h-3.5 ${spotifyConnected ? 'animate-pulse' : ''}`} />
-                                        <span className="text-[10px] font-black uppercase tracking-tighter">{spotifyConnected ? 'Connecté' : 'Non connecté'}</span>
+                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${(spotifyConnected || spotifyState?.has_token) ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                                        <Activity className={`w-3.5 h-3.5 ${(spotifyConnected || spotifyState?.has_token) ? 'animate-pulse' : ''}`} />
+                                        <span className="text-[10px] font-black uppercase tracking-tighter">{(spotifyConnected || spotifyState?.has_token) ? 'Connecté' : 'Non connecté'}</span>
                                     </div>
                                 </div>
 
-                                <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
-                                    Créez une application sur le tableau de bord développeur Spotify, déclarez-y l'URL de redirection ci-dessous, puis collez vos identifiants. Ils ne quittent jamais votre machine.
-                                </p>
+                                {!(spotifyConnected || spotifyState?.has_token) ? (
+                                    <>
+                                        <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
+                                            Créez une application sur le tableau de bord développeur Spotify, déclarez-y l'URL de redirection ci-dessous, puis collez vos identifiants. Ils ne quittent jamais votre machine.
+                                        </p>
 
-                                <div className="flex items-center justify-between gap-4 bg-black/40 border border-white/5 px-4 py-3 rounded-xl">
-                                    <span className="text-[9px] font-black text-white/40 uppercase tracking-widest shrink-0">URL de redirection à déclarer</span>
-                                    <code className="text-[10px] font-mono text-white/70 truncate">http://127.0.0.1:40510/callback</code>
-                                </div>
+                                        <div className="flex items-center justify-between gap-4 bg-black/40 border border-white/5 px-4 py-3 rounded-xl">
+                                            <span className="text-[9px] font-black text-white/40 uppercase tracking-widest shrink-0">URL de redirection à déclarer</span>
+                                            <code className="text-[10px] font-mono text-white/70 truncate">http://127.0.0.1:40510/callback</code>
+                                        </div>
 
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex justify-between items-center pl-2">
-                                        <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Client ID</label>
-                                        <a
-                                            href="https://developer.spotify.com/dashboard"
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
-                                        >
-                                            <Compass size={10} /> Créer une application
-                                        </a>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        value={spotifyIdInput}
-                                        onChange={(e) => setSpotifyIdInput(e.target.value)}
-                                        placeholder="Client ID de votre application Spotify..."
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
-                                    />
-                                </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Client Secret</label>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 relative">
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center pl-2">
+                                                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Client ID</label>
+                                                <a
+                                                    href="https://developer.spotify.com/dashboard"
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
+                                                >
+                                                    <Compass size={10} /> Créer une application
+                                                </a>
+                                            </div>
                                             <input
-                                                type={showSpotifySecret ? "text" : "password"}
-                                                value={spotifySecretInput}
-                                                onChange={(e) => setSpotifySecretInput(e.target.value)}
-                                                placeholder="Client Secret de votre application Spotify..."
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                                type="text"
+                                                value={spotifyIdInput}
+                                                onChange={(e) => setSpotifyIdInput(e.target.value)}
+                                                placeholder="Client ID de votre application Spotify..."
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
                                             />
-                                            <button
-                                                onClick={() => setShowSpotifySecret(!showSpotifySecret)}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
-                                            >
-                                                {showSpotifySecret ? <EyeOff size={14} /> : <Eye size={14} />}
-                                            </button>
                                         </div>
-                                        <button
-                                            onClick={handleSaveSpotifyCredentials}
-                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
-                                        >
-                                            Sauver
-                                        </button>
-                                    </div>
-                                </div>
+
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Client Secret</label>
+                                            <div className="flex gap-2">
+                                                <div className="flex-1 relative">
+                                                    <input
+                                                        type={showSpotifySecret ? "text" : "password"}
+                                                        value={spotifySecretInput}
+                                                        onChange={(e) => setSpotifySecretInput(e.target.value)}
+                                                        placeholder="Client Secret de votre application Spotify..."
+                                                        className="w-full bg-black/40 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                                    />
+                                                    <button
+                                                        onClick={() => setShowSpotifySecret(!showSpotifySecret)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                                                    >
+                                                        {showSpotifySecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    onClick={handleSaveSpotifyCredentials}
+                                                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                >
+                                                    Sauver
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
+                                        Compte Spotify lié. Reconnecte pour changer de compte — les identifiants restent sur ta machine.
+                                    </p>
+                                )}
 
                                 {spotifyError && (
                                     <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl text-[9px] font-black text-red-400 uppercase tracking-widest">
@@ -503,10 +513,10 @@ const SettingsTab = () => {
 
                                 <button
                                     onClick={handleConnectSpotify}
-                                    disabled={!spotifyIdInput.trim() || !spotifySecretInput.trim()}
+                                    disabled={!(spotifyIdInput.trim() || appData?.spotifyClientId) || !(spotifySecretInput.trim() || appData?.spotifyClientSecret)}
                                     className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                 >
-                                    {spotifyConnected ? 'Reconnecter Spotify' : 'Associer Spotify'}
+                                    {(spotifyConnected || spotifyState?.has_token) ? 'Changer de compte Spotify' : 'Associer Spotify'}
                                 </button>
                             </div>
                         </div>
