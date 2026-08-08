@@ -61,10 +61,12 @@ const SettingsTab = () => {
     const [spotifyEditing, setSpotifyEditing] = useState(!(appData?.spotifyClientId && appData?.spotifyClientSecret));
     const [spotifyReplacingSecret, setSpotifyReplacingSecret] = useState(false);
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
+    const [discordClientIdInput, setDiscordClientIdInput] = useState(appData?.discordClientId || '');
 
     useEffect(() => {
         if (appData) {
             setPremiumTokenInput(appData.premiumToken || '');
+            setDiscordClientIdInput(appData.discordClientId || '');
             const hasGemini = !!appData.geminiApiKey;
             const savedId = appData.spotifyClientId || spotifyState?.saved_client_id || '';
             const hasSpotifyCreds = !!(savedId && (appData.spotifyClientSecret || spotifyState?.has_credentials));
@@ -794,7 +796,47 @@ const SettingsTab = () => {
                                                 }}
                                                 disabled={isDisabled}
                                             />
-                                            
+
+                                            {plugin.key === 'discord' && isEnabled && (
+                                                <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
+                                                    <div className="flex justify-between items-center">
+                                                        <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Discord Client ID</label>
+                                                        <a
+                                                            href="https://discord.com/developers/applications"
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="text-indigo-400 hover:text-indigo-300 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
+                                                        >
+                                                            <Compass size={10} /> Créer une application
+                                                        </a>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={discordClientIdInput}
+                                                            onChange={(e) => setDiscordClientIdInput(e.target.value)}
+                                                            placeholder="Application ID Discord…"
+                                                            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-indigo-500 transition-colors"
+                                                        />
+                                                        <button
+                                                            onClick={async () => {
+                                                                await updateSetting('discordClientId', discordClientIdInput.trim());
+                                                            }}
+                                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                        >
+                                                            Sauver
+                                                        </button>
+                                                    </div>
+                                                    <p className="text-[9px] text-white/25 uppercase font-bold tracking-widest leading-relaxed">
+                                                        Requis pour le statut vocal. Discord Developer Portal → New Application → copier l’Application ID.
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {plugin.key === 'discord' && !isInstalled && isPremium && (
+                                                <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
+                                                    Plugin StreamDock optionnel — inject : -IncludeDiscord
+                                                </p>
+                                            )}
                                         </div>
                                     );
                                 })}

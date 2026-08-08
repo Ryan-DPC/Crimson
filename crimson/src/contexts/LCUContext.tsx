@@ -57,6 +57,7 @@ interface LCUContextType {
         in_voice?: boolean;
         username?: string | null;
         current_channel_id?: string | null;
+        error?: string | null;
     } | null;
     discordConnected: boolean;
     
