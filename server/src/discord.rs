@@ -16,6 +16,8 @@ pub struct DiscordState {
     pub in_voice: bool,
     pub current_channel_id: Option<String>,
     pub username: Option<String>,
+    /// Last IPC/handshake error for the UI (e.g. invalid client id).
+    pub error: Option<String>,
 }
 
 pub struct DiscordService {
@@ -79,18 +81,41 @@ impl DiscordService {
                 let app_data = crate::storage::load_data_from_path(crate::storage::get_data_path_from_env());
                 let client_id = app_data
                     .discord_client_id
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| "1330663435166412852".to_string());
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+
+                let Some(client_id) = client_id else {
+                    {
+                        let mut s = state_clone.write().await;
+                        let msg = "Client ID Discord manquant — crée une application sur discord.com/developers et colle l’ID dans Paramètres.".to_string();
+                        if s.error.as_deref() != Some(msg.as_str()) {
+                            s.connected = false;
+                            s.error = Some(msg);
+                            drop(s);
+                            Self::broadcast_state(&state_clone, &sender_clone).await;
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    continue;
+                };
 
                 match Self::connect_to_ipc().await {
                     Ok(mut pipe) => {
-                        tracing::info!("[DISCORD] IPC pipe opened, handshaking…");
+                        tracing::info!("[DISCORD] IPC pipe opened, handshaking with client_id={}…", client_id);
                         if let Err(e) = Self::send_handshake(&mut pipe, &client_id).await {
                             tracing::warn!("[DISCORD] Handshake write failed: {}", e);
+                            Self::set_error(&state_clone, &sender_clone, format!("Handshake Discord échoué: {}", e)).await;
                         } else if let Err(e) = Self::wait_for_ready(&mut pipe, &state_clone, &sender_clone).await {
                             tracing::warn!("[DISCORD] Handshake/READY failed: {}", e);
+                            Self::set_error(&state_clone, &sender_clone, e.to_string()).await;
                         } else {
                             tracing::info!("[DISCORD] READY — connected to Discord client");
+                            {
+                                let mut s = state_clone.write().await;
+                                s.error = None;
+                            }
+                            Self::broadcast_state(&state_clone, &sender_clone).await;
                             // rpc.local events/commands work without OAuth on IPC.
                             let _ = Self::subscribe_event(&mut pipe, "VOICE_SETTINGS_UPDATE_2", json!({})).await;
                             let _ = Self::subscribe_event(&mut pipe, "VIDEO_STATE_UPDATE", json!({})).await;
@@ -106,9 +131,9 @@ impl DiscordService {
                                     break;
                                 }
                                 tokio::select! {
-                                    result = Self::read_frame(&mut pipe, &mut buffer) => {
+                                    result = Self::read_frame_ex(&mut pipe, &mut buffer) => {
                                         match result {
-                                            Ok(v) => {
+                                            Ok((_opcode, v)) => {
                                                 Self::handle_ipc_payload(
                                                     v,
                                                     &state_clone,
@@ -159,6 +184,18 @@ impl DiscordService {
         });
     }
 
+    async fn set_error(state: &Arc<RwLock<DiscordState>>, sender: &WsSender, msg: String) {
+        let mut s = state.write().await;
+        s.connected = false;
+        s.in_voice = false;
+        s.username = None;
+        if s.error.as_deref() != Some(msg.as_str()) {
+            s.error = Some(msg);
+            drop(s);
+            Self::broadcast_state(state, sender).await;
+        }
+    }
+
     async fn wait_for_ready(
         pipe: &mut tokio::net::windows::named_pipe::NamedPipeClient,
         state: &Arc<RwLock<DiscordState>>,
@@ -171,8 +208,21 @@ impl DiscordService {
             if remaining.is_zero() {
                 return Err("Timed out waiting for Discord READY".into());
             }
-            let frame = tokio::time::timeout(remaining, Self::read_frame(pipe, &mut buffer)).await
+            let (opcode, frame) = tokio::time::timeout(remaining, Self::read_frame_ex(pipe, &mut buffer)).await
                 .map_err(|_| "Timed out waiting for Discord READY")??;
+
+            // Opcode 2 = CLOSE (invalid client id, etc.)
+            if opcode == 2 {
+                let msg = frame["message"].as_str()
+                    .or_else(|| frame["data"]["message"].as_str())
+                    .unwrap_or("connexion fermée par Discord");
+                let code = frame["code"].as_u64().or_else(|| frame["data"]["code"].as_u64());
+                if code == Some(4000) || msg.to_lowercase().contains("invalid client") {
+                    return Err("Client ID Discord invalide — crée une application sur discord.com/developers et colle l’ID dans Paramètres.".into());
+                }
+                return Err(format!("Discord a fermé l’IPC: {}", msg).into());
+            }
+
             if frame["evt"].as_str() == Some("READY") {
                 let username = frame["data"]["user"]["username"]
                     .as_str()
@@ -182,6 +232,7 @@ impl DiscordService {
                     let mut s = state.write().await;
                     s.connected = true;
                     s.username = username;
+                    s.error = None;
                 }
                 Self::broadcast_state(state, sender).await;
                 return Ok(());
@@ -189,6 +240,9 @@ impl DiscordService {
             if frame["evt"].as_str() == Some("ERROR") {
                 let msg = frame["data"]["message"].as_str().unwrap_or("unknown error");
                 return Err(format!("Discord ERROR during handshake: {}", msg).into());
+            }
+            if frame["evt"].as_str() == Some("PING") {
+                continue;
             }
         }
     }
@@ -388,6 +442,14 @@ impl DiscordService {
     }
 
     async fn connect_to_ipc() -> Result<tokio::net::windows::named_pipe::NamedPipeClient, Box<dyn std::error::Error + Send + Sync>> {
+        // Official Discord RPC uses \\?\pipe\discord-ipc-N
+        for i in 0..10 {
+            let path = format!(r"\\?\pipe\discord-ipc-{}", i);
+            match ClientOptions::new().open(&path) {
+                Ok(client) => return Ok(client),
+                Err(_) => continue,
+            }
+        }
         for i in 0..10 {
             let path = format!(r"\\.\pipe\discord-ipc-{}", i);
             match ClientOptions::new().open(&path) {
@@ -450,10 +512,11 @@ impl DiscordService {
     }
 
     /// Read one complete Discord IPC frame (8-byte header + JSON body).
-    async fn read_frame(
+    /// Returns (opcode, json).
+    async fn read_frame_ex(
         pipe: &mut tokio::net::windows::named_pipe::NamedPipeClient,
         scratch: &mut Vec<u8>,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(u32, serde_json::Value), Box<dyn std::error::Error + Send + Sync>> {
         let mut header = [0u8; 8];
         pipe.read_exact(&mut header).await?;
         let opcode = u32::from_le_bytes(header[0..4].try_into().unwrap());
@@ -462,20 +525,26 @@ impl DiscordService {
             return Err(format!("Discord frame too large: {} bytes", length).into());
         }
         scratch.resize(length, 0);
-        pipe.read_exact(scratch).await?;
+        if length > 0 {
+            pipe.read_exact(scratch).await?;
+        }
 
         // Opcode 3 = PING → reply PONG (4)
         if opcode == 3 {
             let mut pong = Vec::with_capacity(8 + length);
             pong.extend_from_slice(&4u32.to_le_bytes());
             pong.extend_from_slice(&(length as u32).to_le_bytes());
-            pong.extend_from_slice(scratch);
+            pong.extend_from_slice(&scratch[..length]);
             let _ = pipe.write_all(&pong).await;
-            return Ok(json!({ "evt": "PING" }));
+            return Ok((opcode, json!({ "evt": "PING" })));
         }
 
-        let value: serde_json::Value = serde_json::from_slice(scratch)?;
-        Ok(value)
+        if length == 0 {
+            return Ok((opcode, json!({})));
+        }
+
+        let value: serde_json::Value = serde_json::from_slice(&scratch[..length])?;
+        Ok((opcode, value))
     }
 
     async fn simulate_screenshare_keybind() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -295,13 +295,22 @@ export default function HomeTab() {
                                             : 'bg-red-500'
                                     }`} />
                                     <span className="text-white/50 text-[10px] truncate uppercase font-bold tracking-widest">
-                                        {!discordState?.connected
-                                            ? 'Discord introuvable'
-                                            : discordState?.in_voice
-                                                ? 'En vocal'
-                                                : 'Connecté'}
+                                        {discordState?.error
+                                            ? (discordState.error.includes('invalide') || discordState.error.includes('manquant')
+                                                ? 'Client ID requis'
+                                                : 'Erreur Discord')
+                                            : !discordState?.connected
+                                                ? 'Discord introuvable'
+                                                : discordState?.in_voice
+                                                    ? 'En vocal'
+                                                    : 'Connecté'}
                                     </span>
                                 </div>
+                                {discordState?.error && (
+                                    <p className="text-[9px] text-red-400/80 mt-2 leading-snug">
+                                        {discordState.error}
+                                    </p>
+                                )}
                             </div>
                         </div>
                         
