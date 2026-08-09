@@ -265,6 +265,29 @@ async fn accept_loop(
 /// Vrai si l'origine designe la machine locale. Couvre la webview Tauri, qui
 /// se presente sous http://tauri.localhost sur Windows, et les plugins
 /// StreamDock, charges depuis des fichiers locaux.
+/// Strip bearer / refresh tokens from WS payloads before they hit the log file.
+fn redact_ws_payload_for_log(value: &serde_json::Value) -> String {
+    const SENSITIVE: &[&str] = &[
+        "access_token",
+        "refresh_token",
+        "token",
+        "client_secret",
+        "authorization",
+        "password",
+    ];
+    let mut cloned = value.clone();
+    if let Some(obj) = cloned.as_object_mut() {
+        for key in SENSITIVE {
+            if let Some(v) = obj.get_mut(*key) {
+                if v.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                    *v = serde_json::Value::String("***".to_string());
+                }
+            }
+        }
+    }
+    cloned.to_string()
+}
+
 fn is_local_origin(origin: &str) -> bool {
     let lower = origin.trim().to_ascii_lowercase();
 
@@ -299,7 +322,23 @@ fn is_local_origin(origin: &str) -> bool {
 
 #[cfg(test)]
 mod origin_tests {
-    use super::is_local_origin;
+    use super::{is_local_origin, redact_ws_payload_for_log};
+    use serde_json::json;
+
+    #[test]
+    fn redact_ws_payload_masque_les_jetons() {
+        let raw = json!({
+            "type": "AUTH_SESSION",
+            "access_token": "super-secret",
+            "refresh_token": "also-secret",
+            "plugin": "spotify"
+        });
+        let redacted = redact_ws_payload_for_log(&raw);
+        assert!(redacted.contains("***"));
+        assert!(!redacted.contains("super-secret"));
+        assert!(!redacted.contains("also-secret"));
+        assert!(redacted.contains("spotify"));
+    }
 
     #[test]
     fn accepte_les_plugins_streamdock() {
@@ -588,7 +627,14 @@ async fn handle_connection(
                                         }
                                     }
 
-                                    tracing::info!("[SD IN] Event: {} Type: {} Payload: {}", evt_name, type_name, text);
+                                    // Never log raw payloads: AUTH_SESSION / SPOTIFY_AUTH carry
+                                    // bearer tokens. Redact sensitive fields before printing.
+                                    tracing::info!(
+                                        "[SD IN] Event: {} Type: {} Payload: {}",
+                                        evt_name,
+                                        type_name,
+                                        redact_ws_payload_for_log(&value)
+                                    );
 
                                     if value["type"] == "TOGGLE_PLUGIN" {
                                         if let (Some(plugin), Some(enabled)) = (value["plugin"].as_str(), value["enabled"].as_bool()) {
