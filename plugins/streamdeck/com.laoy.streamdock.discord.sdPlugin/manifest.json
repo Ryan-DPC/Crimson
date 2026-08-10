@@ -11,6 +11,9 @@
   "Software": {
     "MinimumVersion": "2.0.0"
   },
+  "Nodejs": {
+    "Version": "20"
+  },
   "Actions": [
     {
       "Name": "Toggle Mute",

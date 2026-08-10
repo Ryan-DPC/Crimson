@@ -10,13 +10,34 @@ let clearArtTimeout = null;
 // ==========================================
 // CRIMSON BACKEND CONNECT (Stand-alone)
 // ==========================================
+/** Resolve WS auth token for crimson-server (strict auth).
+ * Order: injected window global → localhost HTTP bootstrap → Node fs → ActiveX.
+ */
 function crimsonAuthToken() {
+    try {
+        if (typeof window !== 'undefined' && window.__CRIMSON_AUTH_TOKEN__) {
+            var injected = String(window.__CRIMSON_AUTH_TOKEN__).trim();
+            if (injected) return injected;
+        }
+    } catch (e0) {}
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', 'http://127.0.0.1:40510/local/ws-token', false);
+        xhr.send(null);
+        if (xhr.status === 200 && xhr.responseText) {
+            var httpTok = String(xhr.responseText).trim();
+            if (httpTok) {
+                try { window.__CRIMSON_AUTH_TOKEN__ = httpTok; } catch (eCache) {}
+                return httpTok;
+            }
+        }
+    } catch (e1) {}
     try {
         var fs = require('fs');
         var path = require('path');
         var tokenPath = path.join(process.env.APPDATA || '', 'com.laoy.crimsons', 'auth.token');
         return (fs.readFileSync(tokenPath, 'utf8') || '').trim();
-    } catch (e) {
+    } catch (e2) {
         try {
             var shell = new ActiveXObject('WScript.Shell');
             var fso = new ActiveXObject('Scripting.FileSystemObject');
@@ -26,7 +47,7 @@ function crimsonAuthToken() {
             var t = f.ReadAll();
             f.Close();
             return (t || '').trim();
-        } catch (e2) {
+        } catch (e3) {
             return '';
         }
     }

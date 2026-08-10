@@ -135,6 +135,29 @@ async fn accept_loop(
                 // Secrets never travel in the query string. GET uses credentials
                 // already stored in data.json / spotify_cache; POST accepts a JSON
                 // body { clientId, clientSecret } from the property inspector.
+                // Local-only WS auth bootstrap for StreamDock HTML plugins that
+                // cannot read %APPDATA%\com.laoy.crimsons\auth.token (no Node/ActiveX).
+                // Bound to 127.0.0.1 already — same trust boundary as the token file.
+                if request.starts_with("GET /local/ws-token") {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut stream = stream;
+                    let mut drop_buf = [0; 4096];
+                    let _ = stream.read(&mut drop_buf).await;
+                    let token = crate::auth::current_token().unwrap_or_default();
+                    let response = if token.is_empty() {
+                        "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".to_string()
+                    } else {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            token.len(),
+                            token
+                        )
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                    return;
+                }
+
                 if request.starts_with("OPTIONS /authorization") {
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
                     let mut stream = stream;
@@ -424,7 +447,11 @@ async fn handle_connection(
             .and_then(|q| {
                 q.split('&').find_map(|pair| {
                     let (k, v) = pair.split_once('=')?;
-                    if k == "token" { Some(v.to_string()) } else { None }
+                    if k == "token" {
+                        Some(urlencoding::decode(v).unwrap_or(std::borrow::Cow::Borrowed(v)).into_owned())
+                    } else {
+                        None
+                    }
                 })
             })
             .unwrap_or_default();
