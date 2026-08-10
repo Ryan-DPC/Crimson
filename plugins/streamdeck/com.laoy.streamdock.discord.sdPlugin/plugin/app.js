@@ -181,8 +181,10 @@ function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, in
     }
 
     const connectHw = () => {
-        if (crimsonAPI.ws && crimsonAPI.ws.readyState === WebSocket.OPEN) {
-            console.log("[Discord] Crimson Server is active. Skipping direct hardware connection.");
+        // Always own the StreamDock socket. Handover alone drops keyDown on AJAZZ.
+        if (streamDeckSocket &&
+            (streamDeckSocket.readyState === WebSocket.OPEN ||
+             streamDeckSocket.readyState === WebSocket.CONNECTING)) {
             return;
         }
 
@@ -195,11 +197,8 @@ function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, in
 
         streamDeckSocket.onclose = function () {
             console.warn("[Discord] Hardware socket closed.");
-            setTimeout(() => {
-                if (!crimsonAPI.ws || crimsonAPI.ws.readyState !== WebSocket.OPEN) {
-                    connectHw();
-                }
-            }, 3000);
+            streamDeckSocket = null;
+            setTimeout(() => connectHw(), 3000);
         };
 
         streamDeckSocket.onerror = function () {
@@ -220,9 +219,10 @@ function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, in
 }
 
 function handleKeyDown(action, context) {
-    // Prefer server-side handling when Crimson bridge owns the socket
-    // (avoids duplicate commands). Local path covers Crimson-offline fallback.
-    if (crimsonAPI.ws && crimsonAPI.ws.readyState === WebSocket.OPEN) {
+    // Local HW path owns keyDown on AJAZZ (handover does not deliver presses).
+    // Always send DISCORD_COMMAND when crimson is reachable.
+    if (!crimsonAPI.ws || crimsonAPI.ws.readyState !== WebSocket.OPEN) {
+        console.warn("[Discord] keyDown ignored: crimson-server not connected");
         return;
     }
 

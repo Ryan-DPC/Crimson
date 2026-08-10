@@ -367,8 +367,11 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
 
     let streamDeckSocket = null;
     const connectHw = () => {
-        if (api.isConnected) {
-            console.log("Crimson Plugin: Crimson Server is active. Skipping direct hardware connection.");
+        // Always own the StreamDock socket. Skipping HW when crimson is up
+        // left keyDown undelivered on AJAZZ (handover does not get presses).
+        if (streamDeckSocket &&
+            (streamDeckSocket.readyState === WebSocket.OPEN ||
+             streamDeckSocket.readyState === WebSocket.CONNECTING)) {
             return;
         }
 
@@ -382,11 +385,8 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
 
         streamDeckSocket.onclose = function () {
             console.warn("Crimson Plugin: Hardware socket closed.");
-            setTimeout(() => {
-                if (!api.isConnected) {
-                    connectHw();
-                }
-            }, 3000);
+            streamDeckSocket = null;
+            setTimeout(() => connectHw(), 3000);
         };
 
         streamDeckSocket.onerror = function () {

@@ -373,9 +373,12 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
     }
 
     const connectHw = () => {
-        // Only connect to hardware if Crimson API is not connected
-        if (crimsonAPI.ws && crimsonAPI.ws.readyState === WebSocket.OPEN) {
-            console.log("Crimson Plugin: Crimson Server is active. Skipping direct hardware connection.");
+        // Always own the StreamDock socket. REGISTER_STREAMDOCK handover is
+        // unreliable for HTML plugins: willAppear may reach crimson-server while
+        // keyDown stays on this connection and was previously dropped.
+        if (window.streamDeckSocket &&
+            (window.streamDeckSocket.readyState === WebSocket.OPEN ||
+             window.streamDeckSocket.readyState === WebSocket.CONNECTING)) {
             return;
         }
 
@@ -389,24 +392,25 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
 
         streamDeckSocket.onclose = function () {
             console.warn("Crimson Plugin: Hardware socket closed.");
-            setTimeout(() => {
-                if (!crimsonAPI.ws || crimsonAPI.ws.readyState !== WebSocket.OPEN) {
-                    connectHw();
-                }
-            }, 3000);
+            window.streamDeckSocket = null;
+            setTimeout(() => connectHw(), 3000);
         };
 
         streamDeckSocket.onerror = function () {
             streamDeckSocket.close();
         };
 
+        let lastClickTime = 0;
         streamDeckSocket.onmessage = function (evt) {
             const jsonObj = JSON.parse(evt.data);
             const event = jsonObj['event'];
             const action = jsonObj['action'];
             const context = jsonObj['context'];
 
-            if (event === "propertyInspectorDidAppear" || event === "propertyInspectorDidDisappear" || event === "sendToPlugin" || event === "didReceiveSettings" || event === "didReceiveGlobalSettings" || event === "willAppear" || event === "willDisappear") {
+            // Forward hardware events (including keyDown) for server logs / PI sync.
+            // Presses are executed via handleActionClick → SPOTIFY_COMMAND below:
+            // the Rust StreamDock handover often never sees keyDown on AJAZZ.
+            if (event === "propertyInspectorDidAppear" || event === "propertyInspectorDidDisappear" || event === "sendToPlugin" || event === "didReceiveSettings" || event === "didReceiveGlobalSettings" || event === "willAppear" || event === "willDisappear" || event === "keyDown" || event === "keyUp" || event === "dialPress" || event === "dialRotate") {
                 crimsonAPI.send(jsonObj);
             }
 
@@ -449,6 +453,26 @@ window.connectElgatoStreamDeckSocket = function(inPort, inPluginUUID, inRegister
                     if (action.includes("playplaylist") && (settings.playlist_image || settings.image)) {
                         handleSetImage({ context: context, payload: { image: settings.playlist_image || settings.image } });
                     }
+                }
+            }
+
+            // AJAZZ delivers keyDown to this HTML plugin socket; the Rust handover
+            // rarely sees presses. Emit SPOTIFY_COMMAND (works on all sidecars).
+            if (event === "keyDown" || (event === "dialPress" && jsonObj['payload']?.pressed)) {
+                const now = Date.now();
+                if (now - lastClickTime > 200) {
+                    lastClickTime = now;
+                    const settings = contextSettings[context] || (jsonObj['payload'] && jsonObj['payload'].settings) || {};
+                    handleActionClick(action, context, settings);
+                }
+            }
+
+            if (event === "dialRotate") {
+                const ticks = (jsonObj['payload'] && jsonObj['payload'].ticks) || 0;
+                if (action === "com.laoy.streamdock.spotify.volumecontrol") {
+                    crimsonAPI.send({ type: "SPOTIFY_COMMAND", endpoint: "volumecontrol", payload: { ticks: ticks } });
+                } else if (action === "com.laoy.streamdock.spotify.previousornext") {
+                    crimsonAPI.send({ type: "SPOTIFY_COMMAND", endpoint: "skip", payload: { ticks: ticks > 0 ? 1 : -1 } });
                 }
             }
         };
