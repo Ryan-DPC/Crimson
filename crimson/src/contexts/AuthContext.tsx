@@ -8,6 +8,7 @@ interface AuthContextType {
     user: User | null;
     isPremium: boolean;
     loading: boolean;
+    refreshPremium: () => Promise<boolean>;
     signOut: () => Promise<void>;
 }
 
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     isPremium: false,
     loading: true,
+    refreshPremium: async () => false,
     signOut: async () => {},
 });
 
@@ -43,11 +45,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => subscription.unsubscribe();
     }, []);
 
-    const checkPremiumStatus = async (userId?: string) => {
+    const checkPremiumStatus = async (userId?: string): Promise<boolean> => {
         if (!userId) {
             setIsPremium(false);
             setLoading(false);
-            return;
+            return false;
         }
 
         // Start the sidecar as soon as we have a Supabase user. Premium lookup
@@ -71,13 +73,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Sert uniquement a l'affichage. L'ancienne heuristique sur la
             // longueur du jeton ne prouvait rien : c'est la base qui fait foi,
             // et le serveur local revalide de son cote avant toute commande.
-            setIsPremium(data?.is_premium === true);
+            const premium = data?.is_premium === true;
+            setIsPremium(premium);
+            return premium;
         } catch (error) {
             console.error('Error fetching premium status:', error);
             setIsPremium(false);
+            return false;
         } finally {
             setLoading(false);
         }
+    };
+
+    /** Re-lit is_premium apres un achat — pas besoin de reinstaller. */
+    const refreshPremium = async (): Promise<boolean> => {
+        const { data: { session: current } } = await supabase.auth.getSession();
+        return checkPremiumStatus(current?.user?.id);
     };
 
     const signOut = async () => {
@@ -90,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, isPremium, loading, signOut }}>
+        <AuthContext.Provider value={{ session, user, isPremium, loading, refreshPremium, signOut }}>
             {children}
         </AuthContext.Provider>
     );

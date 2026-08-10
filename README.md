@@ -28,6 +28,10 @@ Version actuelle : **3.1.4**.
 
 Auth / droits premium : Supabase (client + vérif côté serveur).
 
+## Utilisateur final
+
+Voir [`docs/GUIDE_UTILISATEUR.md`](docs/GUIDE_UTILISATEUR.md) : connexion sans Premium, LoL automatique, setup unique Spotify / Discord, Actualiser après achat Premium, injection StreamDock.
+
 ## Plugins StreamDock
 
 | Pack | Contenu |

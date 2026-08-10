@@ -80,6 +80,7 @@ interface LCUContextType {
     spotifyCommand: (endpoint: string) => void;
     discordCommand: (endpoint: string, params?: any) => void;
     togglePlugin: (plugin: string, enabled: boolean) => Promise<void>;
+    resyncAuthSession: () => void;
     seasonStats: { wins: number, losses: number } | null;
 }
 
@@ -578,6 +579,17 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
     }, [session, authLoading, serverConnected]);
 
+    /** Force le sidecar a revalider is_premium (apres achat) sans relancer l'app. */
+    const resyncAuthSession = () => {
+        const ws = socketsRef.current[40510];
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+            type: 'AUTH_SESSION',
+            access_token: session?.access_token ?? null,
+            refresh_token: session?.refresh_token ?? null,
+        }));
+    };
+
     const handleWsMessage = async (msg: any) => {
         if (msg.type === 'GAME_PHASE') {
             setGamePhase(msg.phase);
@@ -1056,6 +1068,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             spotifyCommand,
             discordCommand,
             togglePlugin,
+            resyncAuthSession,
             seasonStats,
             draftAnalysis,
             isAnalyzingDraft

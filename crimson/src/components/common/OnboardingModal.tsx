@@ -163,12 +163,12 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                             </div>
                             <div>
                                 <h2 className="text-xl font-black text-white uppercase tracking-widest">Associer vos services</h2>
-                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Optionnel - Intégrations multimédia</p>
+                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Une fois · LoL auto · Spotify &amp; Discord = Premium</p>
                             </div>
                         </div>
 
-                        <p className="text-xs text-white/60 leading-relaxed mb-8 uppercase tracking-wider font-semibold">
-                            Connectez vos applications favorites pour les contrôler directement depuis l'application ou votre Stream Deck en jeu.
+                        <p className="text-xs text-white/60 leading-relaxed mb-6 uppercase tracking-wider font-semibold">
+                            League of Legends se connecte tout seul dès que le client est ouvert. Spotify se configure une seule fois ici. Discord s’active ensuite dans Paramètres → Plugins (Premium).
                         </p>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
@@ -177,23 +177,29 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex flex-col">
                                         <span className="text-xs font-black text-white uppercase tracking-widest">Spotify</span>
-                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Overlay Paroles & Musique</span>
+                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Setup unique · Premium pour StreamDock</span>
                                     </div>
                                     <Music className="w-5 h-5 text-green-500" />
                                 </div>
 
-                                <a
-                                    href="https://developer.spotify.com/dashboard"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1.5 text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors mb-3"
-                                >
-                                    <Compass size={10} /> Créer votre application Spotify
-                                </a>
-                                <p className="text-[8px] text-white/30 uppercase font-black tracking-widest mb-3 leading-relaxed">
-                                    URL de redirection à y déclarer :<br />
-                                    <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
-                                </p>
+                                <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest mb-3 leading-relaxed space-y-1.5 list-decimal list-inside">
+                                    <li>
+                                        <a
+                                            href="https://developer.spotify.com/dashboard"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-red-500 hover:text-red-400"
+                                        >
+                                            Créer une app Spotify Developer
+                                        </a>
+                                    </li>
+                                    <li>
+                                        Redirect URI :{' '}
+                                        <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
+                                    </li>
+                                    <li>Coller Client ID + Secret ci-dessous</li>
+                                    <li>Cliquer Associer → autoriser dans le navigateur</li>
+                                </ol>
 
                                 <div className="flex flex-col gap-2 mb-3">
                                     <input
@@ -225,7 +231,7 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                 </button>
                             </div>
 
-                            {/* Discord — optionnel, pas de setup ici */}
+                            {/* Discord — optionnel, pas de setup OAuth ici */}
                             <div className="bg-black/40 border border-white/5 p-6 rounded-3xl flex flex-col justify-between hover:border-white/10 transition-colors">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex flex-col">
@@ -234,9 +240,12 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                     </div>
                                     <MessageSquare className="w-5 h-5 text-indigo-400" />
                                 </div>
-                                <p className="text-[10px] text-white/40 leading-relaxed uppercase font-bold tracking-wider">
-                                    Active-le plus tard dans Paramètres → Plugins.
-                                </p>
+                                <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest leading-relaxed space-y-1.5 list-decimal list-inside">
+                                    <li>Ouvrir Discord sur le PC</li>
+                                    <li>Paramètres → Plugins → activer Discord</li>
+                                    <li>Mute / deafen marchent sans config OAuth</li>
+                                    <li>Clés StreamDock Discord = plugin optionnel</li>
+                                </ol>
                             </div>
                         </div>
 
@@ -256,8 +265,11 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                             <ShieldCheck size={40} />
                         </div>
                         <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-4">Configuration Terminée !</h2>
-                        <p className="text-xs text-white/50 max-w-sm leading-relaxed mb-10 uppercase tracking-wider font-semibold">
-                            Crimson est désormais configuré et prêt à l'emploi. Lancez League of Legends pour voir la magie opérer.
+                        <p className="text-xs text-white/50 max-w-sm leading-relaxed mb-4 uppercase tracking-wider font-semibold">
+                            Lancez League of Legends : Crimsons se connecte automatiquement. Après un achat Premium, utilisez « Actualiser le statut » dans Paramètres — aucune réinstallation.
+                        </p>
+                        <p className="text-[10px] text-white/30 max-w-sm leading-relaxed mb-10 uppercase tracking-wider font-semibold">
+                            StreamDock : installez les plugins Crimsons (LoL + Spotify) fournis avec l’app, puis redémarrez Stream Dock.
                         </p>
                         <button 
                             onClick={handleNext}

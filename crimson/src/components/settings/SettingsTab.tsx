@@ -38,15 +38,17 @@ const SettingsTab = () => {
         appData, updateSetting, loginSpotify,
         updateStatus, updateProgress, availableVersion, 
         checkUpdates, installUpdate, serverConnected, 
-        togglePlugin, spotifyConnected, spotifyState
+        togglePlugin, spotifyConnected, spotifyState,
+        resyncAuthSession
     } = useLCU();
     
-    const { isPremium, signOut } = useAuth();
+    const { isPremium, signOut, refreshPremium } = useAuth();
     
     const [activeTab, setActiveTab] = useState<'app' | 'server' | 'plugins'>('app');
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
     const [isRestarting, setIsRestarting] = useState(false);
     const [actualServerPath, setActualServerPath] = useState<string>('Recherche du chemin...');
+    const [premiumRefreshing, setPremiumRefreshing] = useState(false);
     
     // Custom settings inputs
     const [showGeminiKey, setShowGeminiKey] = useState(false);
@@ -75,6 +77,16 @@ const SettingsTab = () => {
         // jamais decide ici : il vient de Supabase et c'est le serveur local qui
         // le verifie. Un client ne doit pas pouvoir se l'attribuer.
         await updateSetting('premiumToken', premiumTokenInput);
+    };
+
+    const handleRefreshPremium = async () => {
+        setPremiumRefreshing(true);
+        try {
+            await refreshPremium();
+            resyncAuthSession();
+        } finally {
+            setPremiumRefreshing(false);
+        }
     };
 
     const handleSaveSpotifyCredentials = async () => {
@@ -316,25 +328,38 @@ const SettingsTab = () => {
                                     <div className="flex flex-col">
                                         <span className="text-[11px] font-black text-white/70 uppercase tracking-widest">Statut du compte</span>
                                         <span className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${isPremium ? 'text-green-500 animate-pulse' : 'text-white/30'}`}>
-                                            {isPremium ? '★ PREMIUM ACTIVÉ' : 'ACCÈS STANDARD'}
+                                            {isPremium ? '★ PREMIUM ACTIVÉ' : 'ACCÈS STANDARD (LoL inclus)'}
                                         </span>
                                     </div>
-                                    <button 
-                                        onClick={() => signOut()}
-                                        className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border border-red-500/20"
-                                    >
-                                        Déconnexion
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            onClick={handleRefreshPremium}
+                                            disabled={premiumRefreshing}
+                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border border-white/10 flex items-center gap-1.5 disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={`w-3 h-3 ${premiumRefreshing ? 'animate-spin' : ''}`} />
+                                            Actualiser
+                                        </button>
+                                        <button 
+                                            onClick={() => signOut()}
+                                            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border border-red-500/20"
+                                        >
+                                            Déconnexion
+                                        </button>
+                                    </div>
                                 </div>
+                                <p className="text-[9px] text-white/25 uppercase font-bold tracking-widest leading-relaxed">
+                                    Après un achat Premium, cliquez Actualiser — Spotify et Discord se déverrouillent sans réinstaller.
+                                </p>
 
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Clé Premium Crimson (Jeton)</label>
+                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Référence Premium (ne débloque pas le compte)</label>
                                     <div className="flex gap-2">
                                         <input 
                                             type="text" 
                                             value={premiumTokenInput}
                                             onChange={(e) => setPremiumTokenInput(e.target.value)}
-                                            placeholder="Token d'abonnement manuel..." 
+                                            placeholder="Jeton de référence uniquement…" 
                                             className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
                                         />
                                         <button 
@@ -438,7 +463,7 @@ const SettingsTab = () => {
                                 </div>
 
                                 <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
-                                    Créez une application sur le tableau de bord développeur Spotify, déclarez-y l'URL de redirection ci-dessous, puis collez vos identifiants. Ils ne quittent jamais votre machine.
+                                    Setup une seule fois : 1) créer une app sur le dashboard Spotify Developer · 2) y déclarer l’URL de redirection · 3) coller Client ID / Secret · 4) Associer. Contrôle StreamDock = Premium.
                                 </p>
 
                                 <div className="flex items-center justify-between gap-4 bg-black/40 border border-white/5 px-4 py-3 rounded-xl">
@@ -679,7 +704,12 @@ const SettingsTab = () => {
                                             )}
                                             {plugin.key === 'discord' && !isInstalled && isPremium && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Plugin StreamDock optionnel — inject : -IncludeDiscord
+                                                    Mute / deafen marchent déjà dans l’app. Plugin StreamDock Discord optionnel (redémarrer Stream Dock après installation).
+                                                </p>
+                                            )}
+                                            {plugin.key === 'discord' && isPremium && (
+                                                <p className="text-[9px] text-white/25 uppercase font-black tracking-widest mt-2">
+                                                    Laissez Discord ouvert sur le PC — aucune association OAuth requise.
                                                 </p>
                                             )}
                                         </div>

@@ -83,7 +83,7 @@ const LoginScreen = () => {
                             </div>
                         </div>
                         <h1 className="text-3xl font-black tracking-[0.2em] text-white uppercase text-center">CRIMSONS</h1>
-                        <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-2">Accès Premium Requis</p>
+                        <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-2">LoL gratuit · Spotify &amp; Discord en Premium</p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-6">
