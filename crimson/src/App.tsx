@@ -28,7 +28,8 @@ function App() {
     rank, appData, updateSetting,
     updateStatus, updateProgress, availableVersion, installUpdate,
     serverConnected, lolConnected,
-    sum, v
+    sum, v,
+    loginSpotify, spotifyConnected,
   } = useLCU();
 
   const { session, loading } = useAuth();
@@ -342,7 +343,9 @@ function App() {
         <OnboardingModal 
           onClose={() => setShowOnboarding(false)} 
           updateSetting={updateSetting} 
-          appData={appData} 
+          appData={appData}
+          loginSpotify={loginSpotify}
+          spotifyConnected={spotifyConnected}
         />
       )}
     </div>

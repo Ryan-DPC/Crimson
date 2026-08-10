@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
     Sparkles, Key, Music, MessageSquare, 
-    ArrowRight, Check, Compass, ShieldCheck 
+    ArrowRight, Check, Compass, ShieldCheck, Activity
 } from 'lucide-react';
 import logoRed from '../../assets/logos/logo_red_transparent.png';
 
@@ -9,15 +9,31 @@ interface OnboardingModalProps {
     onClose: () => void;
     updateSetting: (key: string, value: any) => Promise<void>;
     appData: any;
+    loginSpotify: (clientId: string, clientSecret: string) => Promise<void>;
+    spotifyConnected: boolean;
 }
 
-export default function OnboardingModal({ onClose, updateSetting, appData }: OnboardingModalProps) {
+export default function OnboardingModal({
+    onClose,
+    updateSetting,
+    appData,
+    loginSpotify,
+    spotifyConnected,
+}: OnboardingModalProps) {
     const [step, setStep] = useState(1);
     const [geminiKey, setGeminiKey] = useState(appData?.geminiApiKey || '');
     const [isSaving, setIsSaving] = useState(false);
     const [spotifyId, setSpotifyId] = useState(appData?.spotifyClientId || '');
     const [spotifySecret, setSpotifySecret] = useState(appData?.spotifyClientSecret || '');
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
+    const [spotifyPending, setSpotifyPending] = useState(false);
+
+    useEffect(() => {
+        if (spotifyConnected && spotifyPending) {
+            setSpotifyPending(false);
+            setSpotifyError(null);
+        }
+    }, [spotifyConnected, spotifyPending]);
 
     // Chaque installation utilise l'application Spotify de son proprietaire :
     // aucun identifiant n'est fourni par Crimsons.
@@ -30,23 +46,20 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
             return;
         }
         setSpotifyError(null);
+        setSpotifyPending(true);
 
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
         try {
             localStorage.removeItem('spotify_client_secret');
             localStorage.removeItem('spotify_client_id');
         } catch { /* ignore */ }
 
-        const redirectUri = 'http://127.0.0.1:40510/callback';
-        const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
-        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
-
         try {
-            const { open } = await import('@tauri-apps/plugin-shell');
-            await open(authUrl);
+            // Persists credentials + pushes SPOTIFY_CREDENTIALS to the sidecar,
+            // then opens OAuth — same path as Paramètres.
+            await loginSpotify(clientId, clientSecret);
         } catch (e) {
             console.error("Failed to open Spotify auth", e);
+            setSpotifyPending(false);
             setSpotifyError("Impossible d'ouvrir la page d'autorisation Spotify.");
         }
     };
@@ -182,53 +195,72 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                     <Music className="w-5 h-5 text-green-500" />
                                 </div>
 
-                                <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest mb-3 leading-relaxed space-y-1.5 list-decimal list-inside">
-                                    <li>
-                                        <a
-                                            href="https://developer.spotify.com/dashboard"
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-red-500 hover:text-red-400"
+                                {spotifyConnected ? (
+                                    <div className="flex flex-col gap-4 flex-1 justify-center">
+                                        <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl border bg-green-500/10 border-green-500/20 text-green-500">
+                                            <Activity className="w-3.5 h-3.5 animate-pulse" />
+                                            <span className="text-[10px] font-black uppercase tracking-tighter">Connecté — jetons enregistrés</span>
+                                        </div>
+                                        <p className="text-[8px] text-white/40 uppercase font-black tracking-widest leading-relaxed">
+                                            Activez Spotify dans Paramètres → Plugins (Hub) pour le contrôle StreamDock.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest mb-3 leading-relaxed space-y-1.5 list-decimal list-inside">
+                                            <li>
+                                                <a
+                                                    href="https://developer.spotify.com/dashboard"
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-red-500 hover:text-red-400"
+                                                >
+                                                    Créer une app Spotify Developer
+                                                </a>
+                                            </li>
+                                            <li>
+                                                Redirect URI :{' '}
+                                                <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
+                                            </li>
+                                            <li>Coller Client ID + Secret ci-dessous</li>
+                                            <li>Cliquer Associer → autoriser dans le navigateur</li>
+                                        </ol>
+
+                                        <div className="flex flex-col gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={spotifyId}
+                                                onChange={(e) => setSpotifyId(e.target.value)}
+                                                placeholder="Client ID"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
+                                            />
+                                            <input
+                                                type="password"
+                                                value={spotifySecret}
+                                                onChange={(e) => setSpotifySecret(e.target.value)}
+                                                placeholder="Client Secret"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
+                                            />
+                                        </div>
+
+                                        {spotifyError && (
+                                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-3 leading-relaxed">{spotifyError}</p>
+                                        )}
+                                        {spotifyPending && !spotifyError && (
+                                            <p className="text-[8px] font-black text-yellow-400/80 uppercase tracking-widest mb-3 leading-relaxed">
+                                                Autorisez Spotify dans le navigateur… en attente de confirmation
+                                            </p>
+                                        )}
+
+                                        <button
+                                            onClick={handleConnectSpotify}
+                                            disabled={!spotifyId.trim() || !spotifySecret.trim() || spotifyPending}
+                                            className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                         >
-                                            Créer une app Spotify Developer
-                                        </a>
-                                    </li>
-                                    <li>
-                                        Redirect URI :{' '}
-                                        <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
-                                    </li>
-                                    <li>Coller Client ID + Secret ci-dessous</li>
-                                    <li>Cliquer Associer → autoriser dans le navigateur</li>
-                                </ol>
-
-                                <div className="flex flex-col gap-2 mb-3">
-                                    <input
-                                        type="text"
-                                        value={spotifyId}
-                                        onChange={(e) => setSpotifyId(e.target.value)}
-                                        placeholder="Client ID"
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
-                                    />
-                                    <input
-                                        type="password"
-                                        value={spotifySecret}
-                                        onChange={(e) => setSpotifySecret(e.target.value)}
-                                        placeholder="Client Secret"
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
-                                    />
-                                </div>
-
-                                {spotifyError && (
-                                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-3 leading-relaxed">{spotifyError}</p>
+                                            {spotifyPending ? 'En attente…' : 'Associer Spotify'}
+                                        </button>
+                                    </>
                                 )}
-
-                                <button
-                                    onClick={handleConnectSpotify}
-                                    disabled={!spotifyId.trim() || !spotifySecret.trim()}
-                                    className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    Associer Spotify
-                                </button>
                             </div>
 
                             {/* Discord — optionnel, pas de setup OAuth ici */}

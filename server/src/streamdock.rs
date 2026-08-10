@@ -182,21 +182,22 @@ pub async fn process_streamdeck_event(value: serde_json::Value, spotify: Arc<Spo
         tokio::spawn(async move {
             let playlists = s.get_user_playlists().await.unwrap_or_default();
             let devices = s.get_user_devices().await.unwrap_or_default();
-            let _ = tx
-                .send(
-                    json!({
-                        "event": "sendToPropertyInspector",
-                        "context": ctx,
-                        "action": act,
-                        "payload": {
-                            "playlists": playlists,
-                            "devices": devices,
-                            "authorized": true
-                        }
-                    })
-                    .to_string(),
-                )
-                .await;
+            let msg = json!({
+                "event": "sendToPropertyInspector",
+                "context": ctx,
+                "action": act,
+                "payload": {
+                    "playlists": playlists,
+                    "devices": devices,
+                    "authorized": true
+                }
+            })
+            .to_string();
+            // Hardware bridge (Rust-owned StreamDock socket)
+            let _ = tx.send(msg.clone()).await;
+            // Also broadcast so the HTML plugin path (AJAZZ owns the socket)
+            // can forward to StreamDock via ui.send.
+            let _ = s.broadcast_external_event(msg);
         });
     }
 

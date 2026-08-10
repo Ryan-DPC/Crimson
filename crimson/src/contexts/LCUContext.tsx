@@ -661,11 +661,20 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (build) {
                 doImport(build, idx);
             }
+        } else if (msg.type === 'SPOTIFY_CALLBACK_RESULT') {
+            if (msg.ok) {
+                setSpotifyConnected(true);
+                setSpotifyState((prev: any) => ({ ...(prev || {}), has_token: true }));
+            } else {
+                console.error('Spotify OAuth failed:', msg.error);
+            }
         } else if (msg.type === 'SPOTIFY_CALLBACK_CODE') {
-            // Credentials stay in data.json only — never in localStorage / query strings.
+            // Fallback only when the sidecar could not exchange itself.
             invoke('exchange_spotify_token', {
                 code: msg.code
             }).then(() => {
+                setSpotifyConnected(true);
+                setSpotifyState((prev: any) => ({ ...(prev || {}), has_token: true }));
                 console.log("Spotify Connected Successfully");
             }).catch(console.error);
         }
@@ -988,8 +997,13 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const loginSpotify = async (clientId: string, clientSecret: string) => {
         // Persist to data.json and push to the sidecar — never localStorage.
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
+        // Single write so Client ID / Secret cannot race-overwrite each other.
+        const d = await invoke<any>('get_app_data');
+        d.spotifyClientId = clientId;
+        d.spotifyClientSecret = clientSecret;
+        await invoke('set_app_data', { data: d });
+        setAppData(d);
+
         const ws = socketsRef.current[40510];
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
@@ -1001,7 +1015,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const redirectUri = 'http://127.0.0.1:40510/callback';
         const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
-        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
         
         const { open } = await import('@tauri-apps/plugin-shell');
         await open(authUrl);

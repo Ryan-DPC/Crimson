@@ -253,26 +253,47 @@ async fn accept_loop(
                     if let Some(code_start) = request.find("code=") {
                         let code = request[code_start + 5..].split_whitespace().next().unwrap_or("");
                         let code = code.split('&').next().unwrap_or(code);
-                        tracing::info!("[SPOTIFY] Code d'autorisation extrait, diffuse a l'application");
-                        let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
+                        tracing::info!("[SPOTIFY] Code d'autorisation extrait");
 
-                        // Le serveur echange lui-meme le code. L'application le
-                        // fait aussi de son cote quand elle est ouverte, mais un
-                        // plugin StreamDock peut declencher le flux sans elle :
-                        // l'echange ne doit pas dependre de sa presence.
-                        if let Some(s) = &spotify_clone {
+                        // Exchange on the server first (single-use code). Only
+                        // notify the app after success so it does not race a
+                        // second exchange that would invalidate the grant.
+                        let exchange_ok = if let Some(s) = &spotify_clone {
                             match s.exchange_code(code.to_string()).await {
-                                Ok(_) => tracing::info!("[SPOTIFY] Echange du code reussi cote serveur, jetons enregistres"),
-                                Err(e) => tracing::warn!("[SPOTIFY] Echange du code refuse cote serveur : {}", e),
+                                Ok(_) => {
+                                    tracing::info!("[SPOTIFY] Echange du code reussi cote serveur, jetons enregistres");
+                                    let _ = sender_clone.0.send(json!({
+                                        "type": "SPOTIFY_CALLBACK_RESULT",
+                                        "ok": true
+                                    }).to_string());
+                                    true
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[SPOTIFY] Echange du code refuse cote serveur : {}", e);
+                                    let _ = sender_clone.0.send(json!({
+                                        "type": "SPOTIFY_CALLBACK_RESULT",
+                                        "ok": false,
+                                        "error": e.to_string()
+                                    }).to_string());
+                                    false
+                                }
                             }
-                        }
+                        } else {
+                            // No in-process Spotify service — fall back to the app.
+                            let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
+                            false
+                        };
 
                         use tokio::io::{AsyncReadExt, AsyncWriteExt};
                         let mut stream = stream;
                         let mut drop_buf = [0; 4096];
                         let _ = stream.read(&mut drop_buf).await; // Consume the incoming HTTP request headers to prevent TCP RST on close
-                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Spotify Connected!</h1><p>You can close this window now.</p></div></body></html>";
-                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+                        let body = if exchange_ok {
+                            "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div style='text-align:center'><h1 style='color:#22c55e'>Spotify connecté</h1><p>Vous pouvez fermer cette fenêtre.</p></div></body></html>"
+                        } else {
+                            "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div style='text-align:center'><h1 style='color:#ef4444'>Échec de connexion Spotify</h1><p>Réessayez depuis Crimsons → Paramètres (identifiants Client ID / Secret).</p></div></body></html>"
+                        };
+                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
                         let _ = stream.write_all(response.as_bytes()).await;
                         let _ = stream.shutdown().await;
                         return;
@@ -698,8 +719,18 @@ async fn handle_connection(
                                                     if let Some(s) = &spotify {
                                                         s.is_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
                                                         if !enabled {
-                                                            let empty_state = crate::spotify::SpotifyState::default();
-                                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": empty_state }).to_string());
+                                                            // Keep has_token accurate — disabling the Hub
+                                                            // toggle must not look like a disconnect.
+                                                            let has_token = {
+                                                                let client = s.get_client();
+                                                                let lock = client.read().await;
+                                                                lock.access_token.is_some() || lock.refresh_token.is_some()
+                                                            };
+                                                            let idle = crate::spotify::SpotifyState {
+                                                                has_token,
+                                                                ..Default::default()
+                                                            };
+                                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": idle }).to_string());
                                                         } else {
                                                             s.notify.notify_one();
                                                         }
@@ -803,7 +834,15 @@ async fn handle_connection(
                                                     }
                                                 }
                                                 s.update_tokens(access.to_string(), refresh.to_string(), expires_in).await;
-                                                tracing::info!("");
+                                                let _ = sender.0.send(json!({
+                                                    "type": "SPOTIFY_STATE",
+                                                    "data": crate::spotify::SpotifyState {
+                                                        has_token: true,
+                                                        ..Default::default()
+                                                    }
+                                                }).to_string());
+                                                s.notify.notify_one();
+                                                tracing::info!("[SPOTIFY] Jetons mis a jour via SPOTIFY_AUTH");
                                             }
                                         }
                                         continue;
@@ -1002,6 +1041,7 @@ async fn handle_connection(
                                      if value["event"] == "registerPropertyInspector" {
                                         let s_clone = spotify.clone();
                                         let ws_sender = ws_stream_sender.clone();
+                                        let broadcast = sender.0.clone();
                                         tokio::spawn(async move {
                                             if let Some(s) = s_clone {
                                                 let playlists = s.get_user_playlists().await.unwrap_or_default();
@@ -1014,10 +1054,72 @@ async fn handle_connection(
                                                         "authorized": true
                                                     }
                                                 });
-                                                let _ = ws_sender.send(data.to_string()).await;
+                                                let text = data.to_string();
+                                                let _ = ws_sender.send(text.clone()).await;
+                                                let _ = broadcast.send(text);
                                             }
                                         });
                                         continue;
+                                    }
+
+                                    // AJAZZ / HTML plugin owns the StreamDock socket and forwards
+                                    // PI events over crimson WS. Push playlists/devices back so
+                                    // the plugin can ui.send(sendToPropertyInspector) to StreamDock.
+                                    {
+                                        let evt = value["event"].as_str().unwrap_or("");
+                                        let action = value["action"].as_str().unwrap_or("");
+                                        let pi_refresh = evt == "sendToPlugin"
+                                            && matches!(
+                                                value["payload"]["type"].as_str(),
+                                                Some("refresh") | Some("requestPiData")
+                                            );
+                                        if action.starts_with("com.laoy.streamdock.spotify")
+                                            && (evt == "propertyInspectorDidAppear" || pi_refresh)
+                                        {
+                                            let s_clone = spotify.clone();
+                                            let ctx = value["context"].as_str().unwrap_or("").to_string();
+                                            let act = action.to_string();
+                                            let ws_sender = ws_stream_sender.clone();
+                                            let broadcast = sender.0.clone();
+                                            tokio::spawn(async move {
+                                                let (playlists, devices, authorized, error) = if let Some(s) = s_clone {
+                                                    if !crate::entitlement::is_premium().await {
+                                                        tracing::warn!("[SPOTIFY] PI data blocked: premium required");
+                                                        (vec![], vec![], false, Some("premium_required"))
+                                                    } else {
+                                                        let playlists = s.get_user_playlists().await.unwrap_or_default();
+                                                        let devices = s.get_user_devices().await.unwrap_or_default();
+                                                        (playlists, devices, true, None)
+                                                    }
+                                                } else {
+                                                    (vec![], vec![], false, Some("spotify_unavailable"))
+                                                };
+                                                let mut payload = json!({
+                                                    "playlists": playlists,
+                                                    "devices": devices,
+                                                    "authorized": authorized
+                                                });
+                                                if let Some(err) = error {
+                                                    payload["error"] = json!(err);
+                                                }
+                                                let data = json!({
+                                                    "event": "sendToPropertyInspector",
+                                                    "context": ctx,
+                                                    "action": act,
+                                                    "payload": payload
+                                                });
+                                                let text = data.to_string();
+                                                let _ = ws_sender.send(text.clone()).await;
+                                                let _ = broadcast.send(text);
+                                                tracing::info!(
+                                                    "[SPOTIFY] PI data pushed ({} playlists, {} devices, authorized={})",
+                                                    playlists.len(),
+                                                    devices.len(),
+                                                    authorized
+                                                );
+                                            });
+                                            continue;
+                                        }
                                     }
 
                                     if value["type"] == "REGISTER_STREAMDOCK" {

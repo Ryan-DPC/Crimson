@@ -81,6 +81,18 @@ impl SpotifyClient {
         if self.client_secret.is_empty() && !app.spotify_client_secret.is_empty() {
             self.client_secret = app.spotify_client_secret;
         }
+        // Fallback: Tauri may have written only flatten-other keys before the
+        // sidecar typed fields were populated.
+        if self.client_id.is_empty() {
+            if let Some(id) = app.other.get("spotifyClientId").and_then(|v| v.as_str()) {
+                self.client_id = id.to_string();
+            }
+        }
+        if self.client_secret.is_empty() {
+            if let Some(secret) = app.other.get("spotifyClientSecret").and_then(|v| v.as_str()) {
+                self.client_secret = secret.to_string();
+            }
+        }
     }
 
     pub fn save(&self) {
@@ -1437,15 +1449,25 @@ impl SpotifyService {
                     notify: self.notify.clone(),
                 });
 
+                // Always announce connected state first so the UI flips to
+                // CONNECTÉ even if playback fetch fails (idle / no device).
+                let _ = self.sender.0.send(json!({
+                    "type": "SPOTIFY_STATE",
+                    "data": SpotifyState { has_token: true, ..Default::default() }
+                }).to_string());
+
                 tokio::spawn(async move {
                     let _ = self_arc.fetch_user_profile().await;
-                    if let Ok(state) = Self::fetch_current_playback(&s_clone_acc).await {
-                        let _ = self_arc.sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": state }).to_string());
-                    }
+                    let state = match Self::fetch_current_playback(&s_clone_acc).await {
+                        Ok(s) => s,
+                        Err(_) => SpotifyState { has_token: true, ..Default::default() },
+                    };
+                    let _ = self_arc.sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": state }).to_string());
                 });
             }
         } else {
             eprintln!("Failed to exchange Spotify code: {:?}", resp.text().await?);
+            return Err("Spotify token exchange rejected".into());
         }
 
         Ok(())
