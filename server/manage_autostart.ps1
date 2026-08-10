@@ -17,17 +17,19 @@ function Write-Banner {
 
 function Find-ServerExecutable {
     $paths = @(
-        "$env:APPDATA\..\Local\crimson\bin\crimson-server.exe",
-        "${env:ProgramFiles}\crimson\bin\crimson-server.exe",
-        "C:\Users\$env:USERNAME\AppData\Local\crimson\bin\crimson-server.exe"
+        "${env:ProgramFiles}\CRIMSONS\crimson-server.exe",
+        "${env:ProgramFiles(x86)}\CRIMSONS\crimson-server.exe",
+        (Join-Path $PSScriptRoot "..\target\release\crimson-server.exe"),
+        (Join-Path $PSScriptRoot "crimson-server.exe"),
+        (Join-Path $PSScriptRoot "bin\crimson-server.exe")
     )
-    
+
     foreach ($path in $paths) {
-        if (Test-Path $path) {
-            return $path
+        if ($path -and (Test-Path $path)) {
+            return (Resolve-Path $path).Path
         }
     }
-    
+
     return $null
 }
 
@@ -46,6 +48,7 @@ function Show-Status {
     
     $serverPath = Find-ServerExecutable
     $taskStatus = Get-TaskStatus
+    $runValue = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue).CrimsonServer
     
     Write-Host "Server Executable:" -ForegroundColor Green
     if ($serverPath) {
@@ -54,13 +57,21 @@ function Show-Status {
     } else {
         Write-Host "  ✗ Not found in known paths" -ForegroundColor Red
     }
+
+    Write-Host ""
+    Write-Host "HKCU Run (installer default):" -ForegroundColor Green
+    if ($runValue) {
+        Write-Host "  ✓ CrimsonServer = $runValue" -ForegroundColor Green
+    } else {
+        Write-Host "  ✗ CrimsonServer Run key not set" -ForegroundColor Yellow
+    }
     
     Write-Host ""
     Write-Host "Task Scheduler:" -ForegroundColor Green
     Write-Host "  Task Name: CrimsonServer" -ForegroundColor Gray
     
     if ($taskStatus -eq "NOT_FOUND") {
-        Write-Host "  Status: NOT CONFIGURED" -ForegroundColor Red
+        Write-Host "  Status: NOT CONFIGURED" -ForegroundColor Yellow
     } else {
         $statusColor = if ($taskStatus -eq "Ready") { "Green" } else { "Yellow" }
         Write-Host "  Status: $taskStatus" -ForegroundColor $statusColor
