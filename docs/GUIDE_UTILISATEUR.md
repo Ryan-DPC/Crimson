@@ -25,17 +25,19 @@ Parcours type : installer → se connecter → LoL automatique → Spotify une f
 3. Copier le **Client ID** et le **Client Secret**.
 4. Dans Crimsons : tutoriel de bienvenue **ou** Paramètres → App → Spotify.
 5. Coller les identifiants → **Sauver** → **Associer Spotify** → autoriser dans le navigateur.
-6. Avec Premium : activer le plugin Spotify (Paramètres → Plugins) et utiliser les touches StreamDock Spotify.
+6. Avec Premium : dans **Crimsons** → Paramètres → Plugins → activer Spotify, puis utiliser les touches StreamDock Spotify.
 
 Les identifiants restent sur votre PC (`%APPDATA%\com.laoy.crimsons\`).
 
 ## Discord (une seule fois, Premium)
 
-1. Avoir un compte Premium (sinon le plugin reste verrouillé).
-2. Ouvrir **Discord** sur le PC.
-3. Crimsons → Paramètres → Plugins → activer **Discord**.
+Tout se fait dans **Crimsons** + l’app Discord ouverte. Il n’y a **pas** de menu « Plugin » à chercher dans les réglages Discord.
+
+1. Avoir un compte Premium (sinon le bascule reste verrouillé dans Crimsons).
+2. Ouvre l’**app Discord** sur le PC (pas besoin de menu Plugin dans Discord).
+3. **Dans Crimsons** : Paramètres → Plugins → activer **Discord**.
 4. Mute / deafen / caméra fonctionnent via Discord IPC — **pas d’OAuth** ni de Client ID à coller.
-5. (Optionnel) Installer le plugin StreamDock Discord fourni avec Crimsons, puis **redémarrer Stream Dock**.
+5. (Optionnel) Installer le plugin **StreamDock** Discord fourni avec Crimsons, puis **redémarrer Stream Dock**.
 
 ## StreamDock
 

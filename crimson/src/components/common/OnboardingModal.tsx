@@ -168,7 +168,7 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                         </div>
 
                         <p className="text-xs text-white/60 leading-relaxed mb-6 uppercase tracking-wider font-semibold">
-                            League of Legends se connecte tout seul dès que le client est ouvert. Spotify se configure une seule fois ici. Discord s’active ensuite dans Paramètres → Plugins (Premium).
+                            League of Legends se connecte tout seul dès que le client est ouvert. Spotify se configure une seule fois ici. Discord s’active ensuite dans Crimsons (Paramètres → Plugins), pas dans Discord.
                         </p>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
@@ -241,10 +241,10 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                     <MessageSquare className="w-5 h-5 text-indigo-400" />
                                 </div>
                                 <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest leading-relaxed space-y-1.5 list-decimal list-inside">
-                                    <li>Ouvrir Discord sur le PC</li>
-                                    <li>Paramètres → Plugins → activer Discord</li>
-                                    <li>Mute / deafen marchent sans config OAuth</li>
-                                    <li>Clés StreamDock Discord = plugin optionnel</li>
+                                    <li>Ouvre l’app Discord sur le PC (pas de menu Plugin dans Discord)</li>
+                                    <li>Dans Crimsons : Paramètres → Plugins → activer Discord</li>
+                                    <li>Mute / deafen = IPC, sans OAuth</li>
+                                    <li>Touches StreamDock Discord = plugin optionnel à part</li>
                                 </ol>
                             </div>
                         </div>

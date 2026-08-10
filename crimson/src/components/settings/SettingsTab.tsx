@@ -704,12 +704,12 @@ const SettingsTab = () => {
                                             )}
                                             {plugin.key === 'discord' && !isInstalled && isPremium && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Mute / deafen marchent déjà dans l’app. Plugin StreamDock Discord optionnel (redémarrer Stream Dock après installation).
+                                                    Mute / deafen marchent déjà dans Crimsons. Plugin StreamDock Discord optionnel (redémarrer Stream Dock après installation).
                                                 </p>
                                             )}
                                             {plugin.key === 'discord' && isPremium && (
                                                 <p className="text-[9px] text-white/25 uppercase font-black tracking-widest mt-2">
-                                                    Laissez Discord ouvert sur le PC — aucune association OAuth requise.
+                                                    Ouvre l’app Discord sur le PC — pas de menu Plugin dans Discord. Activez le bascule ci-dessus dans Crimsons.
                                                 </p>
                                             )}
                                         </div>
