@@ -525,6 +525,31 @@ async fn handle_connection(
         });
         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(heartbeat.to_string().into())).await;
 
+        // Reconcile Spotify association for the UI even when Hub toggle is OFF
+        // (background poll is paused → otherwise Settings stays "Non connecté").
+        if let Some(s) = &spotify {
+            let snap = s.auth_snapshot_state().await;
+            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                json!({ "type": "SPOTIFY_STATE", "data": snap }).to_string().into()
+            )).await;
+        }
+
+        // Push plugin prefs + live entitlement so Hub matches disk/server truth.
+        {
+            let plugins = data.other.get("plugins").cloned().unwrap_or(json!({}));
+            let premium = crate::entitlement::is_premium().await;
+            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                json!({
+                    "type": "PLUGIN_PREFS",
+                    "plugins": plugins,
+                    "premium": premium,
+                    "spotify_enabled": spotify.as_ref().map(|s| s.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                    "discord_enabled": discord.as_ref().map(|d| d.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                    "lol_enabled": is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                }).to_string().into()
+            )).await;
+        }
+
         // Push current LCU state if connected
         if crate::lcu::is_lcu_connected() {
             if let Ok(phase_str) = crate::lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None) {
@@ -785,8 +810,8 @@ async fn handle_connection(
                                         continue;
                                     }
 
-                                    // Session Supabase transmise par l'application. Gardee en
-                                    // memoire uniquement : elle ne doit jamais toucher le disque.
+                                    // Session Supabase transmise par l'application. Acces en
+                                    // memoire ; le refresh est conserve pour StreamDock au boot.
                                     if value["type"] == "AUTH_SESSION" {
                                         // Seul le jeton vient du client. L'URL de verification est
                                         // figee dans le binaire : la laisser au client reviendrait a
@@ -801,8 +826,40 @@ async fn handle_connection(
                                                     .map(|t| t.to_string());
                                                 crate::entitlement::set_session(token.to_string(), refresh);
                                             }
-                                            _ => crate::entitlement::clear_session(),
+                                            _ => {
+                                                // Ne jamais effacer le refresh sur un AUTH_SESSION
+                                                // vide : une course UI (session pas encore hydratee)
+                                                // cassait le premium StreamDock et desactivait les
+                                                // services. La deconnexion explicite utilise AUTH_LOGOUT.
+                                                tracing::debug!("[AUTH] AUTH_SESSION sans jeton ignore (pas de clear)");
+                                            }
                                         }
+                                        continue;
+                                    }
+
+                                    if value["type"] == "AUTH_LOGOUT" {
+                                        crate::entitlement::clear_session();
+                                        continue;
+                                    }
+
+                                    if value["type"] == "SYNC_STATE" {
+                                        // Client asked to re-pull server truth after reconnect.
+                                        if let Some(s) = &spotify {
+                                            let snap = s.auth_snapshot_state().await;
+                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": snap }).to_string());
+                                        }
+                                        let data_path = storage::get_data_path_from_env();
+                                        let data = storage::load_data_from_path(data_path);
+                                        let plugins = data.other.get("plugins").cloned().unwrap_or(json!({}));
+                                        let premium = crate::entitlement::is_premium().await;
+                                        let _ = sender.0.send(json!({
+                                            "type": "PLUGIN_PREFS",
+                                            "plugins": plugins,
+                                            "premium": premium,
+                                            "spotify_enabled": spotify.as_ref().map(|s| s.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                                            "discord_enabled": discord.as_ref().map(|d| d.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                                            "lol_enabled": is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                                        }).to_string());
                                         continue;
                                     }
 

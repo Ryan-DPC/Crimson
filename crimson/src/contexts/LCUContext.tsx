@@ -366,7 +366,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
 
                 const d = await invoke<any>('get_app_data');
+                // Surgical hist update — avoid rewriting unrelated prefs when possible.
                 d.hist = uniqueHist;
+                // Keep known Spotify / onboarding fields if this poll raced a heal.
                 await invoke('set_app_data', { data: d });
                 setAppData(d);
             } catch {}
@@ -507,6 +509,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // --- EFFECTS ---
     // --- WS CONNECTION ---
     const socketsRef = useRef<Record<number, WebSocket>>({});
+    // Keep latest session for WS onopen without re-binding the socket.
+    const sessionRef = useRef(session);
+    useEffect(() => { sessionRef.current = session; }, [session]);
 
     const connectWs = () => {
         connectSingleWs(40510);
@@ -531,7 +536,26 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         ws.onopen = () => {
             console.log(`Connected to service on port ${port}`);
-            if (port === 40510) setServerConnected(true);
+            if (port === 40510) {
+                setServerConnected(true);
+                // Pull disk prefs immediately — server may have been running for hours.
+                invoke<any>('get_app_data').then(setAppData).catch(() => {});
+                // Ask sidecar for Spotify auth + plugin prefs (has_token even if Hub off).
+                try {
+                    ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+                } catch { /* ignore */ }
+                // Push session only when we actually have a token (never null-clear).
+                const s = sessionRef.current;
+                if (s?.access_token) {
+                    try {
+                        ws.send(JSON.stringify({
+                            type: 'AUTH_SESSION',
+                            access_token: s.access_token,
+                            refresh_token: s.refresh_token ?? null,
+                        }));
+                    } catch { /* ignore */ }
+                }
+            }
             socketsRef.current[port] = ws;
         };
 
@@ -567,27 +591,34 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const ws = socketsRef.current[40510];
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-        // Seuls les jetons partent : le serveur connait deja son point de
-        // verification, le lui laisser choisir serait la faille. Le jeton de
-        // rafraichissement lui permet de se reauthentifier seul au demarrage,
-        // sans quoi toutes les actions StreamDock etaient refusees tant que
-        // cette application n'etait pas ouverte.
+        // Never send a null AUTH_SESSION — that used to clear_session() and wipe
+        // the refresh token, desyncing StreamDock premium until the next login.
+        if (!session?.access_token) return;
+
         ws.send(JSON.stringify({
             type: 'AUTH_SESSION',
-            access_token: session?.access_token ?? null,
-            refresh_token: session?.refresh_token ?? null,
+            access_token: session.access_token,
+            refresh_token: session.refresh_token ?? null,
         }));
+        // Re-sync Spotify / plugins after auth lands (entitlement may flip services on).
+        try {
+            ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+        } catch { /* ignore */ }
     }, [session, authLoading, serverConnected]);
 
     /** Force le sidecar a revalider is_premium (apres achat) sans relancer l'app. */
     const resyncAuthSession = () => {
         const ws = socketsRef.current[40510];
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (!session?.access_token) return;
         ws.send(JSON.stringify({
             type: 'AUTH_SESSION',
-            access_token: session?.access_token ?? null,
-            refresh_token: session?.refresh_token ?? null,
+            access_token: session.access_token,
+            refresh_token: session.refresh_token ?? null,
         }));
+        try {
+            ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+        } catch { /* ignore */ }
     };
 
     const handleWsMessage = async (msg: any) => {
@@ -632,7 +663,16 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
         } else if (msg.type === 'SPOTIFY_STATE') {
             setSpotifyState(msg.data);
-            setSpotifyConnected(msg.data?.has_token || false);
+            setSpotifyConnected(!!msg.data?.has_token);
+        } else if (msg.type === 'PLUGIN_PREFS') {
+            // Server truth for Hub toggles — merge into appData without wiping other keys.
+            setAppData((prev: any) => {
+                const next = { ...(prev || {}) };
+                if (msg.plugins && typeof msg.plugins === 'object') {
+                    next.plugins = { ...(next.plugins || {}), ...msg.plugins };
+                }
+                return next;
+            });
         } else if (msg.type === 'DISCORD_STATE') {
             setDiscordState(msg.data);
             setDiscordConnected(msg.data?.connected || false);

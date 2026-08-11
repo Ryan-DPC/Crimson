@@ -92,6 +92,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const signOut = async () => {
+        // Explicit logout — clear sidecar refresh so StreamDock does not stay premium.
+        try {
+            let token = await invoke<string | null>('crimson_get_auth_token').catch(() => null);
+            const url = token
+                ? `ws://127.0.0.1:40510/?token=${encodeURIComponent(token)}`
+                : 'ws://127.0.0.1:40510/';
+            await new Promise<void>((resolve) => {
+                try {
+                    const ws = new WebSocket(url);
+                    const done = () => resolve();
+                    ws.onopen = () => {
+                        ws.send(JSON.stringify({ type: 'AUTH_LOGOUT' }));
+                        ws.close();
+                        done();
+                    };
+                    ws.onerror = done;
+                    setTimeout(done, 1500);
+                } catch {
+                    resolve();
+                }
+            });
+        } catch (e) {
+            console.error('Failed to notify server of logout:', e);
+        }
         try {
             await invoke('crimson_stop_server');
         } catch (e) {

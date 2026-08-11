@@ -571,18 +571,24 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 pub async fn exchange_spotify_token(app: tauri::AppHandle, code: String) -> Result<(), String> {
     // Credentials live only in data.json / the sidecar — never passed from the webview.
     let data = storage::load_data(&app);
-    let client_id = data
-        .other
-        .get("spotifyClientId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let client_secret = data
-        .other
-        .get("spotifyClientSecret")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let client_id = if !data.spotify_client_id.is_empty() {
+        data.spotify_client_id.clone()
+    } else {
+        data.other
+            .get("spotifyClientId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let client_secret = if !data.spotify_client_secret.is_empty() {
+        data.spotify_client_secret.clone()
+    } else {
+        data.other
+            .get("spotifyClientSecret")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
 
     if client_id.is_empty() || client_secret.is_empty() {
         log_to_launch_file(&app, "[SPOTIFY] Echange impossible - identifiants absents de data.json");

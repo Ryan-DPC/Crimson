@@ -40,10 +40,35 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
-    if (appData && appData.firstLaunchFinished === undefined) {
+    if (!appData) return;
+
+    // Already finished — never re-open full welcome.
+    if (appData.firstLaunchFinished === true) {
+      setShowOnboarding(false);
+      return;
+    }
+
+    // Heal after a Default-wipe race: evidence of prior setup means skip welcome.
+    const priorUse = !!(
+      appData.spotifyClientId ||
+      appData.geminiApiKey ||
+      appData.plugins?.spotify ||
+      appData.plugins?.discord ||
+      appData.closeToTray !== undefined && appData.closeToTray !== null ||
+      spotifyConnected
+    );
+
+    if (priorUse) {
+      updateSetting('firstLaunchFinished', true).catch(() => {});
+      setShowOnboarding(false);
+      return;
+    }
+
+    // Only show when the flag is explicitly missing on a fresh profile.
+    if (appData.firstLaunchFinished === undefined) {
       setShowOnboarding(true);
     }
-  }, [appData]);
+  }, [appData, spotifyConnected]);
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error);

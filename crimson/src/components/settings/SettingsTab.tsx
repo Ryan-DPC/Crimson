@@ -66,11 +66,12 @@ const SettingsTab = () => {
             setPremiumTokenInput(appData.premiumToken || '');
             const hasGemini = !!appData.geminiApiKey;
             const hasSpotifyCreds = !!(appData.spotifyClientId && appData.spotifyClientSecret);
+            const associated = hasSpotifyCreds || spotifyConnected || !!spotifyState?.has_token;
             if (!geminiEditing) {
                 setGeminiKeyInput(hasGemini ? '' : '');
             }
             if (!hasGemini) setGeminiEditing(true);
-            if (!hasSpotifyCreds) {
+            if (!associated) {
                 setSpotifyEditing(true);
                 setSpotifyIdInput(appData.spotifyClientId || '');
                 setSpotifySecretInput('');
@@ -79,7 +80,7 @@ const SettingsTab = () => {
                 setSpotifySecretInput('');
             }
         }
-    }, [appData]);
+    }, [appData, spotifyConnected, spotifyState?.has_token]);
 
     const handleSaveGeminiKey = async () => {
         const key = geminiKeyInput.trim();
@@ -510,13 +511,13 @@ const SettingsTab = () => {
                                             <span className="text-[9px] text-white/30 font-bold uppercase tracking-widest">Votre application, vos identifiants</span>
                                         </div>
                                     </div>
-                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${spotifyConnected ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                                        <Activity className={`w-3.5 h-3.5 ${spotifyConnected ? 'animate-pulse' : ''}`} />
-                                        <span className="text-[10px] font-black uppercase tracking-tighter">{spotifyConnected ? 'Connecté' : 'Non connecté'}</span>
+                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${(spotifyConnected || spotifyState?.has_token) ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                                        <Activity className={`w-3.5 h-3.5 ${(spotifyConnected || spotifyState?.has_token) ? 'animate-pulse' : ''}`} />
+                                        <span className="text-[10px] font-black uppercase tracking-tighter">{(spotifyConnected || spotifyState?.has_token) ? 'Connecté' : 'Non connecté'}</span>
                                     </div>
                                 </div>
 
-                                {spotifyConnected && !spotifyEditing ? (
+                                {(spotifyConnected || spotifyState?.has_token) && !spotifyEditing ? (
                                     <>
                                         <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
                                             Association enregistrée. Activez Spotify dans l’onglet Plugins pour StreamDock.
@@ -598,9 +599,9 @@ const SettingsTab = () => {
                                                 disabled={!resolveSpotifyCredentials().clientId || !resolveSpotifyCredentials().clientSecret}
                                                 className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                             >
-                                                {spotifyConnected ? 'Reconnecter Spotify' : 'Associer Spotify'}
+                                                {(spotifyConnected || spotifyState?.has_token) ? 'Reconnecter Spotify' : 'Associer Spotify'}
                                             </button>
-                                            {spotifyConnected && (
+                                            {(spotifyConnected || spotifyState?.has_token) && (
                                                 <button
                                                     onClick={() => setSpotifyEditing(false)}
                                                     className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
