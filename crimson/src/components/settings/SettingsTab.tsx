@@ -59,13 +59,15 @@ const SettingsTab = () => {
     const [spotifyIdInput, setSpotifyIdInput] = useState('');
     const [spotifySecretInput, setSpotifySecretInput] = useState('');
     const [spotifyEditing, setSpotifyEditing] = useState(!(appData?.spotifyClientId && appData?.spotifyClientSecret));
+    const [spotifyReplacingSecret, setSpotifyReplacingSecret] = useState(false);
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
 
     useEffect(() => {
         if (appData) {
             setPremiumTokenInput(appData.premiumToken || '');
             const hasGemini = !!appData.geminiApiKey;
-            const hasSpotifyCreds = !!(appData.spotifyClientId && appData.spotifyClientSecret);
+            const savedId = appData.spotifyClientId || spotifyState?.saved_client_id || '';
+            const hasSpotifyCreds = !!(savedId && (appData.spotifyClientSecret || spotifyState?.has_credentials));
             const associated = hasSpotifyCreds || spotifyConnected || !!spotifyState?.has_token;
             if (!geminiEditing) {
                 setGeminiKeyInput(hasGemini ? '' : '');
@@ -73,11 +75,13 @@ const SettingsTab = () => {
             if (!hasGemini) setGeminiEditing(true);
             if (!associated) {
                 setSpotifyEditing(true);
-                setSpotifyIdInput(appData.spotifyClientId || '');
+            }
+            if (!spotifyEditing) {
+                setSpotifyIdInput(savedId);
                 setSpotifySecretInput('');
-            } else if (!spotifyEditing) {
-                setSpotifyIdInput('');
-                setSpotifySecretInput('');
+                setSpotifyReplacingSecret(false);
+            } else if (!spotifyIdInput && savedId) {
+                setSpotifyIdInput(savedId);
             }
         }
     }, [appData, spotifyConnected, spotifyState?.has_token]);
@@ -141,16 +145,19 @@ const SettingsTab = () => {
         }
     };
 
+    const savedSpotifyId = appData?.spotifyClientId || spotifyState?.saved_client_id || '';
+    const hasSavedSecret = !!(appData?.spotifyClientSecret || spotifyState?.has_credentials);
+
     const resolveSpotifyCredentials = () => {
-        const clientId = spotifyIdInput.trim() || (appData?.spotifyClientId || '');
+        const clientId = spotifyIdInput.trim() || savedSpotifyId;
         const clientSecret = spotifySecretInput.trim() || (appData?.spotifyClientSecret || '');
-        return { clientId, clientSecret };
+        return { clientId, clientSecret, canReuseSecret: hasSavedSecret || !!clientSecret };
     };
 
     const handleConnectSpotify = async () => {
-        const { clientId, clientSecret } = resolveSpotifyCredentials();
+        const { clientId, clientSecret, canReuseSecret } = resolveSpotifyCredentials();
 
-        if (!clientId || !clientSecret) {
+        if (!clientId || (!clientSecret && !canReuseSecret)) {
             setSpotifyError("Renseignez d'abord le Client ID et le Client Secret de votre application Spotify.");
             setSpotifyEditing(true);
             return;
@@ -161,8 +168,9 @@ const SettingsTab = () => {
             localStorage.removeItem('spotify_client_secret');
             localStorage.removeItem('spotify_client_id');
             await loginSpotify(clientId, clientSecret);
-            setSpotifyIdInput('');
+            setSpotifyIdInput(clientId);
             setSpotifySecretInput('');
+            setSpotifyReplacingSecret(false);
             setSpotifyEditing(false);
         } catch (e) {
             console.error("Failed to open Spotify auth", e);
@@ -266,19 +274,19 @@ const SettingsTab = () => {
                     />
                     <button 
                         onClick={() => setActiveTab('app')}
-                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
-                        Crimsons
+                        CRIMSONS
                     </button>
                     <button 
                         onClick={() => setActiveTab('server')}
-                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Serveur
                     </button>
                     <button 
                         onClick={() => setActiveTab('plugins')}
-                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Hub
                     </button>
@@ -520,7 +528,7 @@ const SettingsTab = () => {
                                 {(spotifyConnected || spotifyState?.has_token) && !spotifyEditing ? (
                                     <>
                                         <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
-                                            Association enregistrée. Activez Spotify dans l’onglet Plugins pour StreamDock.
+                                            Identifiants enregistrés. Activez Spotify dans l’onglet Hub pour StreamDock.
                                         </p>
                                         <div className="flex gap-2">
                                             <button
@@ -532,8 +540,9 @@ const SettingsTab = () => {
                                             <button
                                                 onClick={() => {
                                                     setSpotifyEditing(true);
-                                                    setSpotifyIdInput('');
+                                                    setSpotifyIdInput(savedSpotifyId);
                                                     setSpotifySecretInput('');
+                                                    setSpotifyReplacingSecret(false);
                                                 }}
                                                 className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
                                             >
@@ -565,25 +574,44 @@ const SettingsTab = () => {
                                                 </a>
                                             </div>
                                             <input
-                                                type="password"
+                                                type="text"
                                                 value={spotifyIdInput}
                                                 onChange={(e) => setSpotifyIdInput(e.target.value)}
-                                                placeholder={appData?.spotifyClientId ? 'Nouveau Client ID…' : 'Client ID de votre application Spotify...'}
+                                                placeholder="Client ID de votre application Spotify..."
                                                 autoComplete="off"
+                                                spellCheck={false}
                                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
                                             />
                                         </div>
 
                                         <div className="flex flex-col gap-2">
                                             <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Client Secret</label>
-                                            <input
-                                                type="password"
-                                                value={spotifySecretInput}
-                                                onChange={(e) => setSpotifySecretInput(e.target.value)}
-                                                placeholder={appData?.spotifyClientSecret ? 'Nouveau Client Secret…' : 'Client Secret de votre application Spotify...'}
-                                                autoComplete="off"
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
-                                            />
+                                            {hasSavedSecret && !spotifyReplacingSecret ? (
+                                                <div className="flex gap-2 items-center">
+                                                    <div className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white/50 uppercase tracking-widest">
+                                                        Enregistré
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSpotifyReplacingSecret(true);
+                                                            setSpotifySecretInput('');
+                                                        }}
+                                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                        type="button"
+                                                    >
+                                                        Remplacer
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <input
+                                                    type="password"
+                                                    value={spotifySecretInput}
+                                                    onChange={(e) => setSpotifySecretInput(e.target.value)}
+                                                    placeholder={hasSavedSecret ? 'Nouveau secret… (vide = conserver)' : 'Client Secret de votre application Spotify...'}
+                                                    autoComplete="off"
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                                />
+                                            )}
                                         </div>
 
                                         {spotifyError && (
@@ -596,7 +624,7 @@ const SettingsTab = () => {
                                         <div className="flex gap-2">
                                             <button
                                                 onClick={handleConnectSpotify}
-                                                disabled={!resolveSpotifyCredentials().clientId || !resolveSpotifyCredentials().clientSecret}
+                                                disabled={!resolveSpotifyCredentials().clientId || !resolveSpotifyCredentials().canReuseSecret}
                                                 className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                             >
                                                 {(spotifyConnected || spotifyState?.has_token) ? 'Reconnecter Spotify' : 'Associer Spotify'}
@@ -681,7 +709,7 @@ const SettingsTab = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-sm font-black text-white uppercase tracking-widest font-mono">Hub des Plugins</h3>
-                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Activer ou désactiver les intégrations matérielles et vérifier leur présence</p>
+                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Activer ou désactiver un plugin — les identifiants se gèrent dans CRIMSONS</p>
                                 </div>
                             </div>
                             
@@ -736,10 +764,10 @@ const SettingsTab = () => {
                                                         : 'bg-white/5 border-white/5 text-white/30'
                                                 }`}>
                                                     {isPremiumPlugin && !isPremium
-                                                        ? "Premium Requis"
+                                                        ? "Premium"
                                                         : isInstalled || !requiresDeckPlugin
-                                                            ? (isEnabled ? "Actif & Opérationnel" : "Désactivé")
-                                                            : "Non détecté"}
+                                                            ? (isEnabled ? "Actif" : "Off")
+                                                            : "Off"}
                                                 </span>
                                                 
                                                 {plugin.tier === 'optional' && (
@@ -767,27 +795,6 @@ const SettingsTab = () => {
                                                 disabled={isDisabled}
                                             />
                                             
-                                            {plugin.key === 'spotify' && isEnabled && !(spotifyConnected || spotifyState?.has_token) && (
-                                                <p className="text-[9px] text-yellow-400/80 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Non associé — ouvrez Paramètres → App → Spotify pour Associer une fois.
-                                                </p>
-                                            )}
-                                            {plugin.key === 'spotify' && (spotifyConnected || spotifyState?.has_token) && isEnabled && (
-                                                <p className="text-[9px] text-green-500/70 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Association OK — StreamDock peut contrôler Spotify.
-                                                </p>
-                                            )}
-                                            
-                                            {requiresDeckPlugin && !isInstalled && (!isPremiumPlugin || isPremium) && (
-                                                <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Installez ce plugin sur votre Stream Deck pour l'activer.
-                                                </p>
-                                            )}
-                                            {plugin.key === 'discord' && !isInstalled && isPremium && (
-                                                <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Mute / deafen marchent déjà dans Crimsons. Plugin StreamDock Discord optionnel.
-                                                </p>
-                                            )}
                                         </div>
                                     );
                                 })}

@@ -18,6 +18,13 @@ pub struct SpotifyState {
     pub progress_ms: u32,
     pub duration_ms: u32,
     pub has_token: bool,
+    /// Client ID + Secret already on disk (data.json / spotify_cache). UI must
+    /// not force a re-paste when this is true.
+    #[serde(default)]
+    pub has_credentials: bool,
+    /// Public Client ID only — never the secret — so Settings can prefill.
+    #[serde(default)]
+    pub saved_client_id: String,
     pub volume_percent: u32,
     pub shuffle_state: bool,
     pub smart_shuffle: bool,
@@ -273,16 +280,26 @@ impl SpotifyService {
     /// Auth snapshot for UI hydrate — works even when Hub toggle is off
     /// (polling is paused, so SPOTIFY_STATE would otherwise never arrive).
     pub async fn auth_snapshot_state(&self) -> SpotifyState {
-        let has_token = {
+        let (has_token, has_credentials, saved_client_id) = {
             let lock = self.client.read().await;
-            lock.access_token.is_some() || lock.refresh_token.is_some()
+            (
+                lock.access_token.is_some() || lock.refresh_token.is_some(),
+                !lock.client_id.is_empty() && !lock.client_secret.is_empty(),
+                lock.client_id.clone(),
+            )
         };
         if let Some(mut cached) = self.cached_state.read().await.clone() {
             cached.has_token = has_token || cached.has_token;
+            cached.has_credentials = has_credentials || cached.has_credentials;
+            if cached.saved_client_id.is_empty() {
+                cached.saved_client_id = saved_client_id;
+            }
             return cached;
         }
         SpotifyState {
             has_token,
+            has_credentials,
+            saved_client_id,
             ..Default::default()
         }
     }
@@ -777,6 +794,7 @@ impl SpotifyService {
             track_uri: track["uri"].as_str().unwrap_or("").to_string(),
             track_id: track["id"].as_str().unwrap_or("").to_string(),
             is_liked: false,
+            ..Default::default()
         };
 
         // Fetch liked status if we have a track ID

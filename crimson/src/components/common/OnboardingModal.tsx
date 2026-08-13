@@ -24,9 +24,16 @@ export default function OnboardingModal({
     const [geminiKey, setGeminiKey] = useState(appData?.geminiApiKey || '');
     const [isSaving, setIsSaving] = useState(false);
     const [spotifyId, setSpotifyId] = useState(appData?.spotifyClientId || '');
-    const [spotifySecret, setSpotifySecret] = useState(appData?.spotifyClientSecret || '');
+    const [spotifySecret, setSpotifySecret] = useState('');
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
     const [spotifyPending, setSpotifyPending] = useState(false);
+    const hasSavedSecret = !!appData?.spotifyClientSecret;
+
+    useEffect(() => {
+        if (appData?.spotifyClientId && !spotifyId) {
+            setSpotifyId(appData.spotifyClientId);
+        }
+    }, [appData?.spotifyClientId]);
 
     useEffect(() => {
         if (spotifyConnected && spotifyPending) {
@@ -38,10 +45,10 @@ export default function OnboardingModal({
     // Chaque installation utilise l'application Spotify de son proprietaire :
     // aucun identifiant n'est fourni par Crimsons.
     const handleConnectSpotify = async () => {
-        const clientId = spotifyId.trim();
-        const clientSecret = spotifySecret.trim();
+        const clientId = spotifyId.trim() || (appData?.spotifyClientId || '');
+        const clientSecret = spotifySecret.trim() || (appData?.spotifyClientSecret || '');
 
-        if (!clientId || !clientSecret) {
+        if (!clientId || (!clientSecret && !hasSavedSecret)) {
             setSpotifyError("Renseignez le Client ID et le Client Secret de votre application Spotify.");
             return;
         }
@@ -232,13 +239,16 @@ export default function OnboardingModal({
                                                 value={spotifyId}
                                                 onChange={(e) => setSpotifyId(e.target.value)}
                                                 placeholder="Client ID"
+                                                autoComplete="off"
+                                                spellCheck={false}
                                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
                                             />
                                             <input
                                                 type="password"
                                                 value={spotifySecret}
                                                 onChange={(e) => setSpotifySecret(e.target.value)}
-                                                placeholder="Client Secret"
+                                                placeholder={hasSavedSecret ? 'Enregistré — laisser vide' : 'Client Secret'}
+                                                autoComplete="off"
                                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
                                             />
                                         </div>
@@ -254,7 +264,7 @@ export default function OnboardingModal({
 
                                         <button
                                             onClick={handleConnectSpotify}
-                                            disabled={!spotifyId.trim() || !spotifySecret.trim() || spotifyPending}
+                                            disabled={!(spotifyId.trim() || appData?.spotifyClientId) || !(spotifySecret.trim() || hasSavedSecret) || spotifyPending}
                                             className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                         >
                                             {spotifyPending ? 'En attente…' : 'Associer Spotify'}

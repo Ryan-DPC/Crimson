@@ -108,7 +108,10 @@ const LoginScreen = () => {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     className="w-full bg-black/40 border border-white/5 px-5 py-4 text-xs font-mono focus:border-red-500/50 outline-none text-white/80 rounded-2xl transition-colors"
-                                    placeholder="agent@crimson.local"
+                                    placeholder="Email"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
                                 />
                             </div>
                             <div>
