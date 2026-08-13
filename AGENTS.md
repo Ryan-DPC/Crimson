@@ -4,11 +4,17 @@
 
 CRIMSONS is a **Windows-native Tauri 2 desktop app** (React UI + Rust sidecar). See `README.md` for the full architecture. On the Linux cloud VM, the **frontend** (`crimson/`) always runs, and the **Rust sidecar** (`server/`) now builds/tests/runs on Linux too (see below). The full Tauri desktop app and the peripheral/client integrations remain Windows-oriented.
 
+### Dev vs shipped UI (Windows)
+
+- **`npm run tauri dev`** / **`npm run dev`** — Vite at `http://localhost:5173`. Dev-only. Feels like a website because it *is* a hot-reload server.
+- **Installed `Crimsons.exe`** (`C:\Program Files\CRIMSONS\`, transition alias `crimson.exe`) — Tauri release loads the **embedded** `frontendDist` (`crimson/dist` baked in). No localhost UI, no browser chrome. Autostart runs `crimsons-server.exe`, not Vite.
+- `tauri.conf.json` keeps `devUrl` for `tauri dev` only; production uses `frontendDist` + `beforeBuildCommand`.
+
 ### What runs on Linux (the frontend — `crimson/`)
 
 Standard scripts live in `crimson/package.json`. From `crimson/`:
 
-- `npm run dev` — Vite dev server at `http://localhost:5173/` (this is the dev surface; do NOT use `npm run build`, which requires the Tauri toolchain).
+- `npm run dev` — Vite dev server at `http://localhost:5173/` (this is the **dev** surface on the VM / browser; do NOT use `npm run build`, which requires the Tauri toolchain).
 - `npx tsc -b` — typecheck. This is the **blocking** check in CI (`.github/workflows/ci.yml`).
 - `npm run lint` — ESLint. There is a large pre-existing lint debt (mostly `@typescript-eslint/no-explicit-any`); CI runs it with `continue-on-error: true`, so a non-zero lint exit is expected and non-blocking. Do not try to fix the whole backlog.
 

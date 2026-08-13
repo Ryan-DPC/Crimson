@@ -59,22 +59,33 @@ Voir [`docs/GUIDE_UTILISATEUR.md`](docs/GUIDE_UTILISATEUR.md) : connexion sans P
 | **Optionnel** | Discord — `.\scripts\inject_plugins.ps1 -IncludeDiscord` (Premium) |
 | **Externes (plus tard)** | Hue, Twitch, … téléchargeables ; gratuits ou payants selon le catalogue / la communauté |
 
+## App native vs localhost (important)
+
+| Mode | Comment lancer | UI |
+| --- | --- | --- |
+| **Installé (utilisateur)** | `C:\Program Files\CRIMSONS\Crimsons.exe` (copie de transition : `crimson.exe`) | Frontend **embarqué** dans l’exe — pas de Vite, pas de `localhost:5173`, pas de barre d’URL navigateur |
+| **Dev seulement** | `npm run tauri dev` (ou `npm run dev` dans le navigateur) | Vite sert `http://localhost:5173` — normal en développement uniquement |
+
+L’autostart Windows (`HKCU\...\Run\CrimsonsServer`) lance le sidecar natif `crimsons-server.exe` (jamais un serveur Vite). Le WebSocket local `127.0.0.1:40510` est le moteur en arrière-plan, pas l’UI.
+
+Ne pas ouvrir Crimsons dans Chrome/Edge via localhost : ce n’est pas l’app de bureau.
+
 ## Développement
 
 Prérequis : **Windows**, Node 20+, Rust stable, [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```powershell
-# Frontend seul (hot reload Vite)
+# Frontend seul (hot reload Vite) — localhost:5173, DEV ONLY
 cd crimson
 npm ci
 npm run dev
 
-# App complète (Tauri + sidecar)
+# App complète fenêtre native + Vite (toujours DEV : l’UI passe par localhost:5173)
 cd crimson
 npm run tauri dev
 ```
 
-Build release local (sidecar + bundle Tauri) :
+Build release local (sidecar + bundle Tauri) — produit l’exe avec UI embarquée :
 
 ```powershell
 .\scripts\build_release.ps1

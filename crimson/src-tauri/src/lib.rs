@@ -108,7 +108,8 @@ pub fn run() {
 
       let data = storage::load_data(&handle);
 
-      // Heal stale HKCU Run entries (dead F:\ debug paths, GUI --autostart, etc.).
+      // Heal stale HKCU Run entries (dead debug paths, GUI --autostart, etc.).
+      // Prefer crimsons-server.exe; never Vite / localhost.
       let run_stale = commands::read_server_registry_run_for_heal()
           .map(|v| !commands::run_value_points_to_existing_exe_for_heal(&v))
           .unwrap_or(false);
