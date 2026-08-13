@@ -1,5 +1,5 @@
 /**
- * Live Windows plugin smoke test against the already-running crimson-server.
+ * Live Windows plugin smoke test against the already-running crimsons-server.
  * Uses %APPDATA%\com.laoy.crimsons\auth.token for WS auth.
  * Optional: CRIMSON_TEST_EMAIL/PASSWORD + VITE_SUPABASE_* for AUTH_SESSION.
  */

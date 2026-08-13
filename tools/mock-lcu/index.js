@@ -61,7 +61,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
     console.log(`[Mock LCU] Server listening on http://127.0.0.1:${PORT}`);
-    console.log(`Run Crimson with: CRIMSON_MOCK_LCU=true npm run tauri dev`);
+    console.log(`Run Crimsons with: CRIMSON_MOCK_LCU=true npm run tauri dev`);
 });
 
 process.on('SIGINT', () => {

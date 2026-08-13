@@ -8,7 +8,7 @@ const fs = require('fs');
 const PROJECT_ROOT = process.env.CRIMSON_PROJECT_ROOT || path.resolve(__dirname, '..', '..');
 
 const SERVER_CMD = process.env.CRIMSON_SERVER_EXE
-    || path.join(PROJECT_ROOT, 'target', 'release', 'crimson-server.exe');
+    || path.join(PROJECT_ROOT, 'target', 'release', 'crimsons-server.exe');
 const SERVER_ARGS = [];
 const SERVER_CWD = PROJECT_ROOT;
 const WS_URL = process.env.CRIMSON_WS_URL || 'ws://127.0.0.1:40510';
@@ -63,7 +63,7 @@ function ensureStreamDockRunning() {
 }
 
 function startServer() {
-    log('Starting Crimson Server...');
+    log('Starting Crimsons Server...');
     serverProcess = spawn(SERVER_CMD, SERVER_ARGS, {
         cwd: SERVER_CWD,
         env: { ...process.env, RUST_LOG: 'info' }
@@ -237,7 +237,7 @@ async function runSuite() {
     if (serverProcess) {
         log('Stopping server...');
         if (process.platform === 'win32') {
-            try { execSync('taskkill /F /IM crimson-server.exe /T 2>nul || exit 0', { shell: true }); } catch(e){}
+            try { execSync('taskkill /F /IM crimsons-server.exe /T 2>nul & taskkill /F /IM crimson-server.exe /T 2>nul || exit 0', { shell: true }); } catch(e){}
         } else {
             serverProcess.kill();
         }
@@ -251,7 +251,7 @@ async function runSuite() {
     log('Cleaning up existing instances...');
     try {
         if (process.platform === 'win32') {
-            execSync('taskkill /F /IM crimson-server.exe /T 2>nul || exit 0', { shell: true });
+            execSync('taskkill /F /IM crimsons-server.exe /T 2>nul & taskkill /F /IM crimson-server.exe /T 2>nul || exit 0', { shell: true });
         }
     } catch (e) {}
 

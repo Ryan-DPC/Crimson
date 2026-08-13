@@ -32,7 +32,7 @@ export default function HomeTab() {
             const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
             new WebviewWindow('lyrics', {
                 url: '/index.html?window=lyrics',
-                title: 'Crimson Lyrics',
+                title: 'Crimsons Lyrics',
                 width: 1200,
                 height: 800,
                 fullscreen: false,

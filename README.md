@@ -8,7 +8,7 @@ Version actuelle : **3.1.4**.
 
 ```
 ┌─────────────────────────┐     WebSocket local      ┌──────────────────────┐
-│  crimson/ (Tauri + UI)  │ ◄──────────────────────► │  crimson-server      │
+│  crimson/ (Tauri + UI)  │ ◄──────────────────────► │  crimsons-server     │
 │  React (Vite) + Rust    │                          │  (sidecar Rust)      │
 └─────────────────────────┘                          └──────────┬───────────┘
                                                                 │
@@ -21,12 +21,31 @@ Version actuelle : **3.1.4**.
 | Pièce | Rôle |
 | --- | --- |
 | `crimson/` | App Tauri 2 : UI React, commandes natives, lance le sidecar |
-| `server/` (`crimson-server`) | Sidecar : WebSocket local, intégrations, bridge StreamDock |
+| `server/` (crate `crimson-server`, binary `crimsons-server`) | Sidecar : WebSocket local, intégrations, bridge StreamDock |
 | `crimson/src-tauri/crates/lcu_commands` | Logique LCU / draft partagée |
 | `plugins/streamdeck/` | **Base :** Crimsons (LoL) + Spotify. Discord optionnel. |
 | `plugins/streamdeck/optional/` | Stubs / futurs plugins externes (Hue, Twitch, …) |
 
 Auth / droits premium : Supabase (client + vérif côté serveur).
+
+## Canonical names
+
+These are the names that must stay aligned. Do **not** “fix” frozen IDs.
+
+| Surface | Canonical value | Notes |
+| --- | --- | --- |
+| Brand | **CRIMSONS** / Crimsons | User-facing copy, window titles, installer, shortcuts |
+| Tauri identifier / AppData | `com.laoy.crimsons` | Keep. Legacy folders `com.laoy.crimson` and `com.laoy.crimons` are migration **sources** only |
+| Install folder | `C:\Program Files\CRIMSONS\` | From `productName` |
+| UI executable | **`Crimsons.exe`** | `mainBinaryName` + Cargo package `crimsons`. Not `Crimson.exe` |
+| Sidecar executable | **`crimsons-server.exe`** | Task Manager / autostart. Crate name stays `crimson-server` (Rust `use crimson_server::`) |
+| Sidecar ProductName | Crimsons / Crimsons Server | winres FileDescription |
+| GitHub | `Ryan-DPC/Crimsons` | Frozen (renaming the remote would break updater + clones) |
+| StreamDock plugin UUIDs | `com.laoy.streamdock.crimson.*`, `com.laoy.streamdock.spotify.*`, `com.laoy.streamdock.discord.*` | **Frozen** — changing them breaks existing decks |
+| Env vars / mutex | `CRIMSON_DEV`, `CRIMSON_STRICT_AUTH`, `Global\crimson_server_v2_lock` | Internal; keep |
+| Tauri invoke names | `crimson_quit_app`, `crimson_start_server`, … | Internal IPC; keep |
+
+The frontend folder `crimson/` and the Rust crate `crimson-server` stay as-is to avoid a repo-wide rename. The **shipped** binaries are Crimsons / crimsons-server.
 
 ## Utilisateur final
 
@@ -82,7 +101,7 @@ Sans `VITE_SUPABASE_*`, le client peut afficher un écran noir (voir le workflow
 
 ## CI & release
 
-- PRs / push `main` : [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — ESLint + `tsc`, Clippy + tests Rust (`crimson-server`, `lcu_commands`) sur Windows. **Pas** de bundle Tauri.
+- PRs / push `main` : [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — ESLint + `tsc`, Clippy + tests Rust (`crimson-server` crate, `lcu_commands`) sur Windows. **Pas** de bundle Tauri.
 - Tags `v*` / `main` : [`.github/workflows/release.yml`](.github/workflows/release.yml) — build + publication.
 
 ## Suivi des bugs

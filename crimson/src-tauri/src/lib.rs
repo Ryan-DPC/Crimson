@@ -100,7 +100,7 @@ pub fn run() {
           let log_path = app_data.join("launch_debug.log");
           if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
               use std::io::Write;
-              let _ = writeln!(file, "\n--- Crimson Startup [{:?}] ---", std::time::SystemTime::now());
+              let _ = writeln!(file, "\n--- Crimsons Startup [{:?}] ---", std::time::SystemTime::now());
               let _ = writeln!(file, "  Resource Dir: {:?}", path_resolver.resource_dir());
               let _ = writeln!(file, "  AppData Dir:  {:?}", app_data);
           }
@@ -144,12 +144,13 @@ pub fn run() {
           }
       }
 
-      let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Quitter Crimson", true, None::<&str>)?;
+      let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Quitter Crimsons", true, None::<&str>)?;
       let show_i = tauri::menu::MenuItem::with_id(app, "show", "Panneau de Controle", true, None::<&str>)?;
       let menu = tauri::menu::Menu::with_items(app, &[&show_i, &quit_i])?;
 
       let mut tray_builder = tauri::tray::TrayIconBuilder::new()
         .menu(&menu)
+        .tooltip("Crimsons")
         .show_menu_on_left_click(true);
 
       if let Some(icon) = app.default_window_icon() {

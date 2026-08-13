@@ -248,7 +248,7 @@ const SettingsTab = () => {
                     <div>
                         <h2 className="text-3xl font-black text-white uppercase tracking-[0.15em]">Configuration</h2>
                         <div className="flex items-center gap-2 mt-1.5 font-black uppercase tracking-widest text-[10px]">
-                            <span className="text-white/20">Crimson Center</span>
+                            <span className="text-white/20">Crimsons Center</span>
                             <span className="w-1 h-1 bg-white/10 rounded-full" />
                             <span className="text-red-500/60">Version {currentVersion}</span>
                         </div>
@@ -266,19 +266,19 @@ const SettingsTab = () => {
                     />
                     <button 
                         onClick={() => setActiveTab('app')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
-                        Crimson
+                        Crimsons
                     </button>
                     <button 
                         onClick={() => setActiveTab('server')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Serveur
                     </button>
                     <button 
                         onClick={() => setActiveTab('plugins')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-32 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Hub
                     </button>
@@ -301,7 +301,7 @@ const SettingsTab = () => {
                                         </div>
                                         <div>
                                             <h3 className="text-lg font-black text-white uppercase tracking-widest">Update Center</h3>
-                                            <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Maintenir Crimson à la pointe</p>
+                                            <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Maintenir Crimsons à la pointe</p>
                                         </div>
                                     </div>
                                     <span className="text-[10px] font-black text-white/10 uppercase tracking-widest font-mono">Channel: Production</span>

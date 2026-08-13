@@ -1263,14 +1263,17 @@ impl SpotifyService {
                 if let Ok(d_json) = devices_resp.json::<serde_json::Value>().await {
                     if let Some(devices) = d_json["devices"].as_array() {
                         let target_device = devices.iter().find(|d| {
-                            d["name"].as_str().map(|n| n.to_lowercase()) == Some("crimson player".to_lowercase())
+                            matches!(
+                                d["name"].as_str().map(|n| n.to_lowercase()).as_deref(),
+                                Some("crimsons player") | Some("crimson player")
+                            )
                         });
                         if let Some(device) = target_device {
                             let device_id = device["id"].as_str().unwrap_or("");
                             url = "https://api.spotify.com/v1/me/player".to_string();
                             payload_json = Some(json!({ "device_ids": [device_id], "play": true }));
                         } else {
-                            return Err("Crimson Player device not found in active devices list".into());
+                            return Err("Crimsons Player device not found in active devices list".into());
                         }
                     } else {
                         return Err("No devices array found in response".into());

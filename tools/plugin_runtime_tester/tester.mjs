@@ -235,7 +235,7 @@ async function main() {
     record('Twitch gated (coming soon)', 'FAILED', String(e.message || e));
   }
 
-  // --- League of Legends (Crimson plugin protocol) ---
+  // --- League of Legends (Crimsons plugin protocol) ---
   app.clear();
   app.send({ type: 'TOGGLE_PLUGIN', plugin: 'leagueOfLegends', enabled: true });
   try {
@@ -258,7 +258,7 @@ async function main() {
     record('LoL SET_AUTO_ACCEPT', 'FAILED', String(e.message || e));
   }
 
-  // Simulate Crimson StreamDock plugin keyDown -> TOGGLE_AUTO_ACCEPT
+  // Simulate Crimsons StreamDock plugin keyDown -> TOGGLE_AUTO_ACCEPT
   app.clear();
   app.send({ type: 'TOGGLE_AUTO_ACCEPT' });
   try {

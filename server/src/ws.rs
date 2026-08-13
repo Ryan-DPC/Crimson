@@ -240,7 +240,7 @@ async fn accept_loop(
                         }
                     } else {
                         tracing::warn!("[SPOTIFY] Autorisation demandee sans identifiants en store");
-                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret dans Crimson ou le Property Inspector.</p></div></body></html>";
+                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret dans Crimsons ou le Property Inspector.</p></div></body></html>";
                         format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
                     };
                     let _ = stream.write_all(response.as_bytes()).await;

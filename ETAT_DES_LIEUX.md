@@ -3,8 +3,8 @@
 | | |
 | --- | --- |
 | **Version suivie** | 3.1.4 |
-| **Identifiant canonique** | `com.laoy.crimsons` (AppData + `tauri.conf.json`) |
-| **Dernier audit doc** | 2026-08-07 (plugins de base + Discord) |
+| **Identifiant canonique** | `com.laoy.crimsons` (AppData + `tauri.conf.json`) ; UI exe `Crimsons.exe` ; sidecar `crimsons-server.exe` |
+| **Dernier audit doc** | 2026-08-13 (identité CRIMSONS / Crimsons.exe / crimsons-server.exe) |
 | **Rôle de ce fichier** | Liste honnête des bugs / dettes encore ouverts. Ne pas marquer « corrigé » sans vérification dans le code ou un test manuel. |
 
 Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `F:`.
@@ -15,7 +15,7 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 
 | Niveau | Plugins StreamDock |
 | --- | --- |
-| **Base (injectés par défaut)** | LoL (`crimson`) + Spotify |
+| **Base (injectés par défaut)** | LoL (`com.laoy.streamdock.crimson` — UUID frozen) + Spotify |
 | **Optionnel maintenu** | Discord (`-IncludeDiscord`) — Premium |
 | **Externes futurs** | Hue, Twitch, etc. sous `plugins/streamdeck/optional/` — téléchargeables plus tard (gratuits ou payants, communauté) |
 
@@ -27,7 +27,7 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 * **Strict auth ON par défaut** (`server/src/auth.rs`) — `CRIMSON_STRICT_AUTH=0` / `false` / `off` pour désactiver.
 * Plugins StreamDock lisent `%APPDATA%\com.laoy.crimsons\auth.token` et passent `?token=`.
 * Property Inspectors HTML **ne** ouvrent plus de WS non authentifié vers `:40510`.
-* CSP Tauri non-null ; capability sidecar `bin/crimson-server`.
+* CSP Tauri non-null ; capability sidecar `bin/crimsons-server`.
 
 ### LCU auto-accept / pick-ban
 * Ready-check sur état LCU **`InProgress`** ; sync `AtomicBool` ↔ `data.json` ; boucle automation côté sidecar uniquement.
@@ -64,7 +64,7 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 
 ## Problèmes / limitations encore ouverts
 
-### 1. Smart Shuffle — limitation API Spotify (pas un bug Crimson)
+### 1. Smart Shuffle — limitation API Spotify (pas un bug Crimsons)
 * Le 3ᵉ état « Smart » est un flag UX local ; l’API Spotify ne propose que on/off.
 
 ### 2. Sécurité locale résiduelle — vol de jeton AppData

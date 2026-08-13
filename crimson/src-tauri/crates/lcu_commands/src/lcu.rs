@@ -55,7 +55,7 @@ pub fn get_lcu_info() -> Result<LcuInfo, String> {
         }
     }
 
-    // --- Method 1: sysinfo (works if Crimson launched before League) ---
+    // --- Method 1: sysinfo (works if Crimsons launched before League) ---
     let mut sys = System::new_all();
     sys.refresh_all();
 

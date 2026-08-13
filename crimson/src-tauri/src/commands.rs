@@ -69,9 +69,12 @@ fn resolve_autostart_server_path(app: &tauri::AppHandle) -> Result<std::path::Pa
     };
 
     // Prefer well-known install locations first — stable across renames/drives.
+    // New binary is crimsons-server.exe; keep crimson-server.exe for already-installed copies.
     let installed_candidates = [
+        r"C:\Program Files\CRIMSONS\crimsons-server.exe",
         r"C:\Program Files\CRIMSONS\crimson-server.exe",
         r"C:\Program Files\CRIMSON\crimson-server.exe",
+        r"C:\Program Files (x86)\CRIMSONS\crimsons-server.exe",
         r"C:\Program Files (x86)\CRIMSONS\crimson-server.exe",
         r"C:\Program Files (x86)\CRIMSON\crimson-server.exe",
     ];
@@ -89,14 +92,14 @@ fn resolve_autostart_server_path(app: &tauri::AppHandle) -> Result<std::path::Pa
         }
         if is_debug_build(&p) {
             return Err(
-                "Autostart refuses debug crimson-server.exe (needs CRIMSON_DEV=1 and dies at login). \
+                "Autostart refuses debug crimsons-server.exe (needs CRIMSON_DEV=1 and dies at login). \
                  Install CRIMSONS or build a release sidecar, then re-enable."
                     .into(),
             );
         }
     }
 
-    Err("Could not locate a release crimson-server.exe for autostart".into())
+    Err("Could not locate a release crimsons-server.exe for autostart".into())
 }
 
 fn normalize_exe_path_str(path: &std::path::Path) -> String {
@@ -115,7 +118,7 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
     // (reg.exe /d via CreateProcess strips them.) Escape single quotes for PS literals.
     let escaped = exe_path.replace('\'', "''");
     let ps_command = format!(
-        r#"Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -Value '"{}"'"#,
+        r#"Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -Value '"{}"'; Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue"#,
         escaped
     );
 
@@ -142,7 +145,7 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
 fn remove_server_registry_run() -> Result<(), String> {
     use std::process::Command;
 
-    let ps_command = r#"Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue"#;
+    let ps_command = r#"Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -ErrorAction SilentlyContinue; Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue"#;
 
     let output = Command::new("powershell")
         .args([
@@ -167,7 +170,7 @@ fn remove_server_registry_run() -> Result<(), String> {
 fn read_server_registry_run() -> Option<String> {
     use std::process::Command;
 
-    let ps_command = r#"$v = Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue; if ($null -ne $v) { Write-Output $v }"#;
+    let ps_command = r#"$v = Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -ErrorAction SilentlyContinue; if ($null -eq $v) { $v = Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue }; if ($null -ne $v) { Write-Output $v }"#;
 
     let output = Command::new("powershell")
         .args([
@@ -193,7 +196,7 @@ fn read_server_registry_run() -> Option<String> {
 }
 
 fn run_value_points_to_existing_exe(run_value: &str) -> bool {
-    // Strip surrounding quotes and optional args (legacy "...\crimson.exe" --autostart).
+    // Strip surrounding quotes and optional args (legacy "...\Crimson.exe" --autostart).
     let trimmed = run_value.trim();
     let path = if trimmed.starts_with('"') {
         trimmed
@@ -231,14 +234,14 @@ pub fn ensure_server_autostart_registered(app: &tauri::AppHandle) -> Result<(), 
         log_to_launch_file(
             app,
             &format!(
-                "Healing CrimsonServer Run key: {:?} -> {}",
+                "Healing CrimsonsServer Run key: {:?} -> {}",
                 current, desired
             ),
         );
     } else {
         log_to_launch_file(
             app,
-            &format!("Registering CrimsonServer Run key -> {}", desired),
+            &format!("Registering CrimsonsServer Run key -> {}", desired),
         );
     }
 
@@ -276,7 +279,7 @@ pub fn crimson_get_server_autostart_info(app: tauri::AppHandle) -> Result<serde_
         info["run_path_valid"] = json!(run_value_points_to_existing_exe(&run_val));
         if !run_value_points_to_existing_exe(&run_val) {
             info["errors"].as_array_mut().unwrap().push(
-                "HKCU Run CrimsonServer points to a missing executable — re-enable server autostart"
+                "HKCU Run CrimsonsServer points to a missing executable — re-enable server autostart"
                     .into(),
             );
         }
@@ -340,13 +343,16 @@ pub async fn crimson_stop_server(app: tauri::AppHandle) -> Result<(), String> {
         RefreshKind::new().with_processes(ProcessRefreshKind::new())
     );
     sys.refresh_processes();
-    for process in sys.processes_by_exact_name("crimson-server.exe") {
-        let _ = process.kill();
-        log_to_launch_file(&app, &format!("Killed external crimson-server.exe process (PID: {})", process.pid()));
-    }
-    for process in sys.processes_by_exact_name("crimson-server-x86_64-pc-windows-msvc.exe") {
-        let _ = process.kill();
-        log_to_launch_file(&app, &format!("Killed legacy external sidecar process (PID: {})", process.pid()));
+    for name in [
+        "crimsons-server.exe",
+        "crimsons-server-x86_64-pc-windows-msvc.exe",
+        "crimson-server.exe",
+        "crimson-server-x86_64-pc-windows-msvc.exe",
+    ] {
+        for process in sys.processes_by_exact_name(name) {
+            let _ = process.kill();
+            log_to_launch_file(&app, &format!("Killed sidecar process {} (PID: {})", name, process.pid()));
+        }
     }
     Ok(())
 }
@@ -461,7 +467,7 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) -> Result<(), String
                 last_error = Some(msg);
             }
         } else {
-            let msg = "No server executable path was found (expected crimson-server.exe or crimson-server-x86_64-pc-windows-msvc.exe next to the app or in src-tauri/bin).".to_string();
+            let msg = "No server executable path was found (expected crimsons-server.exe next to the app or in src-tauri/bin).".to_string();
             log_to_launch_file(&handle, &format!("ERROR: {}", msg));
             last_error = Some(msg);
         }
@@ -484,8 +490,12 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     }
 
     let path_resolver = app.path();
-    let sidecar_base = "crimson-server.exe";
-    let sidecar_arch = "crimson-server-x86_64-pc-windows-msvc.exe";
+    let sidecar_names = [
+        "crimsons-server.exe",
+        "crimsons-server-x86_64-pc-windows-msvc.exe",
+        "crimson-server.exe",
+        "crimson-server-x86_64-pc-windows-msvc.exe",
+    ];
     
     // Priority order for finding the server executable
     let mut search_paths = vec![];
@@ -510,8 +520,6 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
             if let Some(parent) = exe_dir.parent() {
                 search_paths.push(parent.join("target/release"));
                 search_paths.push(parent.join("target/debug"));
-                search_paths.push(parent.join("cargo-target-hotfix2/release"));
-                search_paths.push(parent.join("cargo-target-hotfix/release"));
                 // Workspace layout: target/{debug,release} and crimson/src-tauri/bin
                 if let Some(repo) = parent.parent() {
                     search_paths.push(repo.join("target/release"));
@@ -526,15 +534,14 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         }
     }
     
-    // 4. Common Crimson installation paths
-    if let Ok(user) = std::env::var("USERNAME") {
-        let app_data = format!("C:\\Users\\{}\\AppData\\Local\\crimson\\bin", user);
-        search_paths.push(std::path::PathBuf::from(&app_data));
+    // 4. LocalAppData next to the Tauri identifier (not the old Local\crimson path)
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        search_paths.push(std::path::PathBuf::from(local).join("com.laoy.crimsons").join("bin"));
     }
     
     // Search for the executable in all paths
     for root in search_paths {
-        for name in &[sidecar_base, sidecar_arch] {
+        for name in &sidecar_names {
             let p = root.join(name);
             if p.is_file() {
                 return Some(p);
@@ -549,7 +556,7 @@ fn find_server_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         while let Some(dir) = current {
             if depth > 5 { break; } // Limit search depth
             
-            for name in &[sidecar_base, sidecar_arch] {
+            for name in &sidecar_names {
                 let p = dir.join(name);
                 if p.is_file() { return Some(p); }
                 

@@ -1,13 +1,13 @@
 [package]
-name = "crimson"
+name = "crimsons"
 version = "3.1.4"
-description = "A Tauri App"
+description = "Crimsons"
 authors = ["you"]
 license = ""
-repository = ""
+repository = "https://github.com/Ryan-DPC/Crimsons"
 edition = "2021"
 rust-version = "1.77.2"
-default-run = "crimson"
+default-run = "crimsons"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

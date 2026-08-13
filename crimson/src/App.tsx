@@ -107,7 +107,7 @@ function App() {
       <div data-tauri-drag-region className="h-screen w-screen bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden">
         {/* App Titlebar for Loading Screen */}
         <div data-tauri-drag-region className="absolute top-0 inset-x-0 h-10 flex items-center justify-between px-4">
-            <span data-tauri-drag-region className="text-white/20 text-[10px] font-black tracking-widest uppercase">Crimson</span>
+            <span data-tauri-drag-region className="text-white/20 text-[10px] font-black tracking-widest uppercase">Crimsons</span>
             <button 
                 onClick={async () => {
                     const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -291,7 +291,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <Cpu className="w-3.5 h-3.5 text-white/20" />
-            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">{appVersion} Crimson</span>
+            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">{appVersion} Crimsons</span>
           </div>
         </div>
 

@@ -38,7 +38,7 @@ fn embed_supabase_config() {
             // packaging the distributed sidecar so this cannot ship again.
             if env::var("CRIMSON_EMBED_SERVER_RESOURCE").as_deref() == Ok("1") {
                 panic!(
-                    "{} missing in crimson/.env — cannot embed Supabase config into crimson-server",
+                    "{} missing in crimson/.env — cannot embed Supabase config into crimsons-server",
                     key
                 );
             }
@@ -70,7 +70,7 @@ fn main() {
     // et l'etape Build Sidecar de la CI. Le build de l'application Tauri ne la
     // demande pas, et n'entre donc plus en conflit.
     //
-    // Sans cette variable, crimson-server.exe se compile sans nom ni icone :
+    // Sans cette variable, crimsons-server.exe se compile sans nom ni icone :
     // c'est voulu, pour un binaire de developpement.
     let embed_resource = env::var("CRIMSON_EMBED_SERVER_RESOURCE").as_deref() == Ok("1");
 
@@ -89,12 +89,9 @@ fn main() {
             println!("cargo:warning=Icon not found at {:?}", icon_path);
         }
 
-        // U+2019 and not a plain ASCII apostrophe: winres escapes `'` as `\'` when it
-        // writes resource.rc, but RC has no such escape, so the backslash would end up
-        // verbatim in the binary and Task Manager would show `Server\'s`.
-        res.set("FileDescription", "Server\u{2019}s");
-        res.set("ProductName", "Server\u{2019}s");
-        res.set("OriginalFilename", "crimson-server.exe");
+        res.set("FileDescription", "Crimsons Server");
+        res.set("ProductName", "Crimsons");
+        res.set("OriginalFilename", "crimsons-server.exe");
         res.compile().unwrap();
     }
 }

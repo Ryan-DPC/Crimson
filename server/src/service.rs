@@ -72,7 +72,7 @@ fn check_and_accept(sender: &WsSender) -> Result<(), String> {
 
     let _ = sender.0.send(json!({
         "type": "NATIVE_NOTIFICATION",
-        "title": "CRIMSON",
+        "title": "CRIMSONS",
         "body": "Match accepté automatiquement !"
     }).to_string());
 

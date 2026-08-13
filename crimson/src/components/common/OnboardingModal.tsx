@@ -130,7 +130,7 @@ export default function OnboardingModal({
                         </div>
 
                         <p className="text-xs text-white/60 leading-relaxed mb-6 uppercase tracking-wider font-semibold">
-                            Crimson utilise l'IA Google Gemini pour analyser votre draft en temps réel et proposer les meilleurs builds. Vous pouvez obtenir une clé d'API gratuite en quelques secondes.
+                            Crimsons utilise l'IA Google Gemini pour analyser votre draft en temps réel et proposer les meilleurs builds. Vous pouvez obtenir une clé d'API gratuite en quelques secondes.
                         </p>
 
                         <div className="bg-black/40 border border-white/5 p-5 rounded-2xl flex items-center justify-between mb-8">
@@ -308,7 +308,7 @@ export default function OnboardingModal({
                             disabled={isSaving}
                             className="flex items-center gap-3 px-10 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl border border-white/10 transition-all shadow-lg hover:shadow-[0_0_30px_rgba(220,38,38,0.3)]"
                         >
-                            <span className="text-xs font-black tracking-widest uppercase">Lancer Crimson</span>
+                            <span className="text-xs font-black tracking-widest uppercase">Lancer Crimsons</span>
                             <Check size={14} />
                         </button>
                     </div>

@@ -145,7 +145,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
             const { getVersion } = await import('@tauri-apps/api/app');
             const currentV = await getVersion();
-            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
+            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimsons/releases');
             if (resp.ok) {
                 const data = await resp.json();
                 let highestV = currentV;
@@ -909,7 +909,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                                 associatedMaps: [11],
                                                 blocks: [{
                                                     items: data.items.slice(0, 15).map((id: number) => ({ id: id.toString(), count: 1 })),
-                                                    type: "OP.GG Crimson Scrape"
+                                                    type: "OP.GG Crimsons Scrape"
                                                 }],
                                                 map: "any",
                                                 mode: "any",
@@ -918,7 +918,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                                 startedFrom: "blank",
                                                 type: "custom",
                                                 uid: "crimson-opgg",
-                                                title: "Crimson Build (OP.GG)"
+                                                title: "Crimsons Build (OP.GG)"
                                             }],
                                             timestamp: Date.now()
                                         };
@@ -996,16 +996,16 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const finalPerks = [...(build.perkIds || []), ...(build.shards || [])].slice(0, 9);
             while(finalPerks.length < 9) finalPerks.push(5001);
 
-            // Delete CRIMSON pages
+            // Delete Crimsons rune pages (also legacy "CRIMSON:" prefix from older builds)
             const pagesStr = await invoke<string>('lcu_request', { method: 'GET', endpoint: '/lol-perks/v1/pages', body: null });
             const pages = JSON.parse(pagesStr);
-            for (const p of pages.filter((p: any) => p.isEditable && p.name.startsWith("CRIMSON:"))) {
+            for (const p of pages.filter((p: any) => p.isEditable && (p.name.startsWith("CRIMSONS:") || p.name.startsWith("CRIMSON:")))) {
                 await invoke('lcu_request', { method: 'DELETE', endpoint: `/lol-perks/v1/pages/${p.id}`, body: null });
             }
 
             await invoke('lcu_request', {
                 method: 'POST', endpoint: '/lol-perks/v1/pages', body: JSON.stringify({
-                    name: `CRIMSON: ${getChampName(myChamp, champs)}`,
+                    name: `CRIMSONS: ${getChampName(myChamp, champs)}`,
                     primaryStyleId: build.primaryStyleId,
                     subStyleId: build.subStyleId,
                     selectedPerkIds: finalPerks,

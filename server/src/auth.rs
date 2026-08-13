@@ -76,7 +76,7 @@ fn publish_token_to_streamdock_plugins(token: &str) {
         "com.laoy.streamdock.discord.sdPlugin",
     ];
     for id in plugin_ids {
-        // Spotify/Crimson load scripts from plugin/; Discord index.html is at plugin root.
+        // Spotify/Crimsons load scripts from plugin/; Discord index.html is at plugin root.
         for rel in ["plugin/crimson_auth_token.js", "crimson_auth_token.js"] {
             let path = plugins_base.join(id).join(rel);
             if let Some(parent) = path.parent() {

@@ -27,7 +27,7 @@ The app is a Tauri app, so `@tauri-apps/api/*` calls (window controls, `invoke`,
 
 ### Building the Rust sidecar (`server/`) on Linux
 
-The `crimson-server` sidecar builds, unit-tests, and runs on Linux (Discord IPC is transport-abstracted: named pipe on Windows, Unix socket elsewhere; the Win32-only `windows` crate is target-gated). It is NOT in the update script (system deps / toolchain changes are out of scope there). Prerequisites, one-time:
+The `crimson-server` crate (binary `crimsons-server`) builds, unit-tests, and runs on Linux (Discord IPC is transport-abstracted: named pipe on Windows, Unix socket elsewhere; the Win32-only `windows` crate is target-gated). It is NOT in the update script (system deps / toolchain changes are out of scope there). Prerequisites, one-time:
 
 - Rust >= 1.85 (a transitive dep requires edition 2024). The VM's pinned default may be older — `rustup default stable` fixes it.
 - System libs: `sudo apt-get install -y pkg-config libssl-dev libx11-dev libxi-dev libxtst-dev` (OpenSSL for `native-tls`; X11 for `rdev` hotkeys).
@@ -36,7 +36,7 @@ Then, from the repo root:
 
 - `cargo build -p crimson-server` — compiles on Linux.
 - `cargo test -p crimson-server --lib` — the same suite CI runs on Windows (origin/auth + automation + storage tests).
-- Run it with `CRIMSON_DEV=1 ./target/debug/crimson-server` (the dev guard refuses to start otherwise). It listens on `127.0.0.1:40510`. Note `get_data_dir()` keys off `APPDATA` (empty on Linux), so logs/data land under `./com.laoy.crimsons/` relative to the CWD.
+- Run it with `CRIMSON_DEV=1 ./target/debug/crimsons-server` (the dev guard refuses to start otherwise). It listens on `127.0.0.1:40510`. Note `get_data_dir()` keys off `APPDATA` (empty on Linux), so logs/data land under `./com.laoy.crimsons/` relative to the CWD.
 
 ### Still Windows-only
 

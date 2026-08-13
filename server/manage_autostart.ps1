@@ -1,6 +1,6 @@
-﻿# Server's Autostart Management Script
-# Primary mechanism: HKCU\...\Run\CrimsonServer (same as Tauri installer / Settings).
-# Optional secondary: Task Scheduler task "CrimsonServer".
+﻿# Crimsons Server autostart management script
+# Primary mechanism: HKCU\...\Run\CrimsonsServer (same as Tauri installer / Settings).
+# Optional secondary: Task Scheduler task "CrimsonsServer" (legacy name "CrimsonServer" still removed).
 
 param(
     [ValidateSet('status', 'enable', 'disable', 'reinstall', 'test', 'logs')]
@@ -19,12 +19,17 @@ function Write-Banner {
 function Find-ServerExecutable {
     # Prefer installed Program Files binary — never fall back to target\debug.
     $paths = @(
+        "${env:ProgramFiles}\CRIMSONS\crimsons-server.exe",
         "${env:ProgramFiles}\CRIMSONS\crimson-server.exe",
+        "${env:ProgramFiles(x86)}\CRIMSONS\crimsons-server.exe",
         "${env:ProgramFiles(x86)}\CRIMSONS\crimson-server.exe",
         "${env:ProgramFiles}\CRIMSON\crimson-server.exe",
         "${env:ProgramFiles(x86)}\CRIMSON\crimson-server.exe",
+        (Join-Path $PSScriptRoot "..\target\release\crimsons-server.exe"),
         (Join-Path $PSScriptRoot "..\target\release\crimson-server.exe"),
+        (Join-Path $PSScriptRoot "crimsons-server.exe"),
         (Join-Path $PSScriptRoot "crimson-server.exe"),
+        (Join-Path $PSScriptRoot "bin\crimsons-server.exe"),
         (Join-Path $PSScriptRoot "bin\crimson-server.exe")
     )
 
@@ -44,22 +49,29 @@ function Find-ServerExecutable {
 }
 
 function Get-RunValue {
+    $new = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -ErrorAction SilentlyContinue).CrimsonsServer
+    if ($new) { return $new }
     return (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue).CrimsonServer
 }
 
 function Set-RunKey {
     param([string]$ServerPath)
     $value = "`"$ServerPath`""
-    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -Value $value
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -Value $value
+    Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue
     return $value
 }
 
 function Remove-RunKey {
+    Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonsServer' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue
 }
 
 function Get-TaskStatus {
-    $task = Get-ScheduledTask -TaskName "CrimsonServer" -ErrorAction SilentlyContinue
+    $task = Get-ScheduledTask -TaskName "CrimsonsServer" -ErrorAction SilentlyContinue
+    if ($null -eq $task) {
+        $task = Get-ScheduledTask -TaskName "CrimsonServer" -ErrorAction SilentlyContinue
+    }
     
     if ($null -eq $task) {
         return "NOT_FOUND"
@@ -69,12 +81,13 @@ function Get-TaskStatus {
 }
 
 function Show-Status {
-    Write-Banner "Server's Autostart Status"
+    Write-Banner "Crimsons Server Autostart Status"
     
     $serverPath = Find-ServerExecutable
     $taskStatus = Get-TaskStatus
     $runValue = Get-RunValue
-    $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'CrimsonServer.lnk'
+    $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'CrimsonsServer.lnk'
+    $legacyLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'CrimsonServer.lnk'
     
     Write-Host "Server Executable:" -ForegroundColor Green
     if ($serverPath) {
@@ -87,7 +100,7 @@ function Show-Status {
     Write-Host ""
     Write-Host "HKCU Run (primary / installer default):" -ForegroundColor Green
     if ($runValue) {
-        Write-Host "  ✓ CrimsonServer = $runValue" -ForegroundColor Green
+        Write-Host "  ✓ CrimsonsServer = $runValue" -ForegroundColor Green
         $exePath = ($runValue.Trim('"') -split '"')[0]
         if (-not (Test-Path $exePath)) {
             Write-Host "  ✗ Target executable MISSING — re-run enable" -ForegroundColor Red
@@ -95,7 +108,7 @@ function Show-Status {
             Write-Host "  ✗ Target looks like a stale debug/drive path — re-run enable" -ForegroundColor Red
         }
     } else {
-        Write-Host "  ✗ CrimsonServer Run key not set" -ForegroundColor Yellow
+        Write-Host "  ✗ CrimsonsServer Run key not set" -ForegroundColor Yellow
     }
 
     Write-Host ""
@@ -103,14 +116,18 @@ function Show-Status {
     if (Test-Path $startupLnk) {
         $shell = New-Object -ComObject WScript.Shell
         $sc = $shell.CreateShortcut($startupLnk)
-        Write-Host "  ✓ CrimsonServer.lnk -> $($sc.TargetPath)" -ForegroundColor Green
+        Write-Host "  ✓ CrimsonsServer.lnk -> $($sc.TargetPath)" -ForegroundColor Green
+    } elseif (Test-Path $legacyLnk) {
+        $shell = New-Object -ComObject WScript.Shell
+        $sc = $shell.CreateShortcut($legacyLnk)
+        Write-Host "  ✓ CrimsonServer.lnk (legacy) -> $($sc.TargetPath)" -ForegroundColor Green
     } else {
-        Write-Host "  (no CrimsonServer.lnk — OK if Run key is set)" -ForegroundColor Gray
+        Write-Host "  (no CrimsonsServer.lnk — OK if Run key is set)" -ForegroundColor Gray
     }
     
     Write-Host ""
     Write-Host "Task Scheduler (optional secondary):" -ForegroundColor Green
-    Write-Host "  Task Name: CrimsonServer" -ForegroundColor Gray
+    Write-Host "  Task Name: CrimsonsServer" -ForegroundColor Gray
     
     if ($taskStatus -eq "NOT_FOUND") {
         Write-Host "  Status: NOT CONFIGURED" -ForegroundColor Yellow
@@ -118,9 +135,12 @@ function Show-Status {
         $statusColor = if ($taskStatus -eq "Ready") { "Green" } else { "Yellow" }
         Write-Host "  Status: $taskStatus" -ForegroundColor $statusColor
         
-        $task = Get-ScheduledTask -TaskName "CrimsonServer"
-        Write-Host "  Last Run: $($task.LastRunTime)" -ForegroundColor Gray
-        Write-Host "  Next Run: $($task.NextRunTime)" -ForegroundColor Gray
+        $task = Get-ScheduledTask -TaskName "CrimsonsServer" -ErrorAction SilentlyContinue
+        if ($null -eq $task) { $task = Get-ScheduledTask -TaskName "CrimsonServer" -ErrorAction SilentlyContinue }
+        if ($task) {
+            Write-Host "  Last Run: $($task.LastRunTime)" -ForegroundColor Gray
+            Write-Host "  Next Run: $($task.NextRunTime)" -ForegroundColor Gray
+        }
     }
     
     Write-Host ""
@@ -134,7 +154,7 @@ function Show-Status {
 }
 
 function Enable-ServerAutostart {
-    Write-Banner "Enabling Server's Autostart"
+    Write-Banner "Enabling Crimsons Server Autostart"
     
     $serverPath = Find-ServerExecutable
     if (-not $serverPath) {
@@ -161,7 +181,8 @@ function Enable-ServerAutostart {
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
         Unregister-ScheduledTask -TaskName "CrimsonServer" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-        $null = Register-ScheduledTask -TaskName "CrimsonServer" -Principal $principal -Action $action -Trigger $trigger -Settings $settings -Force -ErrorAction Stop
+        Unregister-ScheduledTask -TaskName "CrimsonsServer" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        $null = Register-ScheduledTask -TaskName "CrimsonsServer" -Principal $principal -Action $action -Trigger $trigger -Settings $settings -Force -ErrorAction Stop
         Write-Host "✓ Task created successfully" -ForegroundColor Green
     } catch {
         Write-Host "⚠ Task Scheduler optional; Run key is enough. ($_)" -ForegroundColor Yellow
@@ -170,7 +191,7 @@ function Enable-ServerAutostart {
 }
 
 function Disable-ServerAutostart {
-    Write-Banner "Disabling Server's Autostart"
+    Write-Banner "Disabling Crimsons Server Autostart"
     
     try {
         Remove-RunKey
@@ -180,6 +201,7 @@ function Disable-ServerAutostart {
     }
 
     try {
+        Unregister-ScheduledTask -TaskName "CrimsonsServer" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         Unregister-ScheduledTask -TaskName "CrimsonServer" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         Write-Host "✓ Task removed (if present)" -ForegroundColor Green
         return $true
@@ -190,14 +212,14 @@ function Disable-ServerAutostart {
 }
 
 function Reinstall-ServerAutostart {
-    Write-Banner "Reinstalling Server's Autostart"
+    Write-Banner "Reinstalling Crimsons Server Autostart"
     Disable-ServerAutostart | Out-Null
     Start-Sleep -Seconds 1
     Enable-ServerAutostart
 }
 
 function Test-ServerStartup {
-    Write-Banner "Testing Server's Startup"
+    Write-Banner "Testing Crimsons Server Startup"
     
     $serverPath = Find-ServerExecutable
     if (-not $serverPath) {
@@ -205,7 +227,7 @@ function Test-ServerStartup {
         return
     }
 
-    $already = Get-Process -Name "crimson-server" -ErrorAction SilentlyContinue
+    $already = Get-Process -Name "crimsons-server","crimson-server" -ErrorAction SilentlyContinue
     if ($already) {
         Write-Host "✓ Server already running (PID $($already.Id))" -ForegroundColor Green
         return
@@ -230,12 +252,12 @@ function Test-ServerStartup {
 }
 
 function Show-Logs {
-    Write-Banner "Server's Event Logs"
+    Write-Banner "Crimsons Server Event Logs"
     
-    Write-Host "Recent Task Scheduler events for CrimsonServer:" -ForegroundColor Green
+    Write-Host "Recent Task Scheduler events for CrimsonsServer:" -ForegroundColor Green
     Get-WinEvent -FilterHashtable @{
         LogName = "Microsoft-Windows-TaskScheduler/Operational"
-        Data = "CrimsonServer"
+        Data = "CrimsonsServer"
     } -MaxEvents 20 -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Host "$($_.TimeCreated) - $($_.Message)" -ForegroundColor Gray
     }

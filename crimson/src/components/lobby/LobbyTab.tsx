@@ -185,7 +185,7 @@ const LobbyTab = () => {
                                     <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
                                         <BrainCircuit size={18} />
                                     </div>
-                                    <h3 className="text-white font-bold tracking-widest uppercase text-sm">Crimson Coach <span className="text-red-500 font-black">AI</span></h3>
+                                    <h3 className="text-white font-bold tracking-widest uppercase text-sm">Crimsons Coach <span className="text-red-500 font-black">AI</span></h3>
                                     {isAnalyzingDraft && (
                                         <div className="ml-auto flex items-center gap-2 text-xs text-red-400/70 font-mono tracking-widest uppercase">
                                             <RefreshCw size={12} className="animate-spin" />
