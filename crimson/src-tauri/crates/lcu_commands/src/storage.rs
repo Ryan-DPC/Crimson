@@ -146,23 +146,44 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn get_data_path_from_env() -> PathBuf {
+/// Per-user base directory that holds the `com.laoy.crimsons` data folder.
+/// Windows keeps using %APPDATA%; Linux/macOS use $XDG_DATA_HOME (or
+/// ~/.local/share), then $HOME, with a temp-dir last resort. Must never fall
+/// back to the CWD: under `tauri dev` that is the watched source tree, so
+/// writing data.json there triggers an endless rebuild loop.
+fn app_config_base() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        // Canonical data dir: must match tauri.conf.json `identifier` (com.laoy.crimsons).
-        let path = PathBuf::from(&appdata).join("com.laoy.crimsons");
-        for legacy_name in ["com.laoy.crimson", "com.laoy.crimons"] {
-            let legacy = PathBuf::from(&appdata).join(legacy_name);
-            if legacy.exists() && legacy != path {
-                migrate_legacy_appdata(&legacy, &path);
-            }
+        if !appdata.is_empty() {
+            return PathBuf::from(appdata);
         }
-        if !path.exists() {
-            let _ = fs::create_dir_all(&path);
-        }
-        path.join("data.json")
-    } else {
-        PathBuf::from("./data.json")
     }
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        if !xdg.is_empty() {
+            return PathBuf::from(xdg);
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return PathBuf::from(home).join(".local").join("share");
+        }
+    }
+    std::env::temp_dir()
+}
+
+pub fn get_data_path_from_env() -> PathBuf {
+    let base = app_config_base();
+    // Canonical data dir: must match tauri.conf.json `identifier` (com.laoy.crimsons).
+    let path = base.join("com.laoy.crimsons");
+    for legacy_name in ["com.laoy.crimson", "com.laoy.crimons"] {
+        let legacy = base.join(legacy_name);
+        if legacy.exists() && legacy != path {
+            migrate_legacy_appdata(&legacy, &path);
+        }
+    }
+    if !path.exists() {
+        let _ = fs::create_dir_all(&path);
+    }
+    path.join("data.json")
 }
 
 pub fn get_data_path(_app: &AppHandle) -> PathBuf {

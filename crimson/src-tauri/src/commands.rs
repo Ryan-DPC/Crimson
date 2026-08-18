@@ -1,5 +1,6 @@
 use tauri::Manager;
 use lcu_commands::storage;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 #[tauri::command]
@@ -119,15 +120,17 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
         escaped
     );
 
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &ps_command,
-        ])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &ps_command,
+    ]);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command
         .output()
         .map_err(|e| format!("Failed to write Run key: {}", e))?;
 
@@ -144,15 +147,17 @@ fn remove_server_registry_run() -> Result<(), String> {
 
     let ps_command = r#"Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue"#;
 
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            ps_command,
-        ])
-        .creation_flags(0x08000000)
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ps_command,
+    ]);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let output = command
         .output()
         .map_err(|e| format!("Failed to remove Run key: {}", e))?;
 
@@ -169,15 +174,17 @@ fn read_server_registry_run() -> Option<String> {
 
     let ps_command = r#"$v = Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CrimsonServer' -ErrorAction SilentlyContinue; if ($null -ne $v) { Write-Output $v }"#;
 
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            ps_command,
-        ])
-        .creation_flags(0x08000000)
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ps_command,
+    ]);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let output = command
         .output()
         .ok()?;
 
@@ -377,8 +384,11 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) -> Result<(), String
         log_to_launch_file(&handle, &format!("Resolved server path: {:?}", p_opt));
 
         if let Some(p) = p_opt {
+            #[cfg(windows)]
             const DETACHED_PROCESS: u32 = 0x00000008;
+            #[cfg(windows)]
             const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+            #[cfg(windows)]
             const CREATE_NO_WINDOW: u32 = 0x08000000;
 
             let mut cmd = std::process::Command::new(&p);
@@ -390,6 +400,7 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) -> Result<(), String
             if cfg!(debug_assertions) {
                 cmd.env("CRIMSON_DEV", "1");
             }
+            #[cfg(windows)]
             cmd.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW);
             if let Some(parent) = p.parent() { cmd.current_dir(parent); }
             
@@ -413,6 +424,7 @@ pub async fn crimson_spawn_server(handle: tauri::AppHandle) -> Result<(), String
                     if cfg!(debug_assertions) {
                         cmd2.env("CRIMSON_DEV", "1");
                     }
+                    #[cfg(windows)]
                     cmd2.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
                     if let Some(parent) = p.parent() { cmd2.current_dir(parent); }
                     

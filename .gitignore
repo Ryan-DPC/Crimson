@@ -14,6 +14,9 @@ node_modules/
 dist/
 dist-ssr/
 
+# --- Sidecar binaire (genere par cargo + crimson/scripts/prepare-sidecar.mjs) ---
+crimson/src-tauri/bin/
+
 # --- Secrets : ne jamais versionner ---
 .env
 .env.*
