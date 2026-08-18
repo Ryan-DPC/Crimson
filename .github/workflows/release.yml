@@ -135,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path crimson/src-tauri/bin | Out-Null
-          Copy-Item target/release/crimson-server.exe crimson/src-tauri/bin/crimson-server-x86_64-pc-windows-msvc.exe -Force
+          Copy-Item target/release/crimsons-server.exe crimson/src-tauri/bin/crimsons-server-x86_64-pc-windows-msvc.exe -Force
 
       - name: Install Tauri CLI
         run: npm ci

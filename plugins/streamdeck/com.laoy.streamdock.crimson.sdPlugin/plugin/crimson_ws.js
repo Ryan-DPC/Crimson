@@ -1,24 +1,53 @@
-/** Read %APPDATA%\com.laoy.crimsons\auth.token (same path as the local server). */
+/** Resolve WS auth token for crimson-server (strict auth).
+ * Order: localhost HTTP (fresh after server restart) → Node fs / ActiveX → injected.
+ * Injected __CRIMSON_AUTH_TOKEN__ is frozen at plugin page load and goes stale when
+ * crimson-server regenerates auth.token — never prefer it over a live fetch.
+ */
 function crimsonAuthToken() {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', 'http://127.0.0.1:40510/local/ws-token', false);
+        xhr.send(null);
+        if (xhr.status === 200 && xhr.responseText) {
+            var httpTok = String(xhr.responseText).trim();
+            if (httpTok) {
+                try { window.__CRIMSON_AUTH_TOKEN__ = httpTok; } catch (eCache) {}
+                return httpTok;
+            }
+        }
+    } catch (e1) {}
     try {
         var fs = require('fs');
         var path = require('path');
         var tokenPath = path.join(process.env.APPDATA || '', 'com.laoy.crimsons', 'auth.token');
-        return (fs.readFileSync(tokenPath, 'utf8') || '').trim();
-    } catch (e) {
+        var fileTok = (fs.readFileSync(tokenPath, 'utf8') || '').trim();
+        if (fileTok) {
+            try { window.__CRIMSON_AUTH_TOKEN__ = fileTok; } catch (eCache2) {}
+            return fileTok;
+        }
+    } catch (e2) {
         try {
             var shell = new ActiveXObject('WScript.Shell');
             var fso = new ActiveXObject('Scripting.FileSystemObject');
             var p = shell.ExpandEnvironmentStrings('%APPDATA%\\com.laoy.crimsons\\auth.token');
-            if (!fso.FileExists(p)) return '';
-            var f = fso.OpenTextFile(p, 1);
-            var t = f.ReadAll();
-            f.Close();
-            return (t || '').trim();
-        } catch (e2) {
-            return '';
-        }
+            if (fso.FileExists(p)) {
+                var f = fso.OpenTextFile(p, 1);
+                var t = (f.ReadAll() || '').trim();
+                f.Close();
+                if (t) {
+                    try { window.__CRIMSON_AUTH_TOKEN__ = t; } catch (eCache3) {}
+                    return t;
+                }
+            }
+        } catch (e3) {}
     }
+    try {
+        if (typeof window !== 'undefined' && window.__CRIMSON_AUTH_TOKEN__) {
+            var injected = String(window.__CRIMSON_AUTH_TOKEN__).trim();
+            if (injected) return injected;
+        }
+    } catch (e0) {}
+    return '';
 }
 
 function crimsonWsUrl(port) {

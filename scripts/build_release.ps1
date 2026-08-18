@@ -33,7 +33,7 @@ $sidecarDir = Join-Path $ProjectRoot "crimson\src-tauri\bin"
 if (-not (Test-Path $sidecarDir)) {
     New-Item -ItemType Directory -Path $sidecarDir -Force | Out-Null
 }
-Copy-Item (Join-Path $ProjectRoot "target\release\crimson-server.exe") (Join-Path $sidecarDir "crimson-server-x86_64-pc-windows-msvc.exe") -Force
+Copy-Item (Join-Path $ProjectRoot "target\release\crimsons-server.exe") (Join-Path $sidecarDir "crimsons-server-x86_64-pc-windows-msvc.exe") -Force
 
 Set-Location (Join-Path $ProjectRoot "crimson")
 Invoke-Step "Building Tauri release bundle..." { npm run tauri build }

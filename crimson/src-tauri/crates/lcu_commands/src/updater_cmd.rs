@@ -35,10 +35,10 @@ pub async fn download_and_install_update(app: AppHandle, _url: String) -> Result
         );
         sys.refresh_processes();
         
-        // Match both 'crimson-server' and 'crimson-server.exe'
+        // Match current crimsons-server and legacy crimson-server names
         for process in sys.processes().values() {
             let name = process.name().to_lowercase();
-            if name.contains("crimson-server") {
+            if name.contains("crimsons-server") || name.contains("crimson-server") {
                 let _ = process.kill();
             }
         }

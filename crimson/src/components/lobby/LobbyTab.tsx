@@ -185,7 +185,7 @@ const LobbyTab = () => {
                                     <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
                                         <BrainCircuit size={18} />
                                     </div>
-                                    <h3 className="text-white font-bold tracking-widest uppercase text-sm">Crimson Coach <span className="text-red-500 font-black">AI</span></h3>
+                                    <h3 className="text-white font-bold tracking-widest uppercase text-sm">Crimsons Coach <span className="text-red-500 font-black">AI</span></h3>
                                     {isAnalyzingDraft && (
                                         <div className="ml-auto flex items-center gap-2 text-xs text-red-400/70 font-mono tracking-widest uppercase">
                                             <RefreshCw size={12} className="animate-spin" />
@@ -334,7 +334,7 @@ const LobbyTab = () => {
                             <span className="text-[7px] text-red-500/60 font-black uppercase tracking-widest text-center">Bans</span>
                             <div className="flex gap-1 flex-row-reverse">
                                 {[5, 6, 7, 8, 9].map(idx => {
-                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.typePos === 'ban' || (a.type === 'ban' && a.actorCellId === idx && a.completed));
+                                    const ban = lobbyState?.actions?.flat().find((a: any) => a.type === 'ban' && a.actorCellId === idx && a.completed);
                                     return (
                                         <div key={idx} className="w-7 h-7 bg-black/60 border border-white/10 flex items-center justify-center grayscale opacity-60 overflow-hidden rounded shadow-inner shrink-0 scale-90">
                                             {ban && ban.championId > 0 && (

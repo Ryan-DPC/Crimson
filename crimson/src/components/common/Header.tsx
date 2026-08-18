@@ -15,7 +15,7 @@ const Header = ({ tab, setTab, simMode, setSimMode }: HeaderProps) => {
                     <div className="w-7 h-7 flex items-center justify-center">
                         <img src={logoUrl} alt="Logo" className="w-full h-full object-contain filter drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
                     </div>
-                    <h1 className="text-lg font-bold tracking-[0.2em] text-neutral-100 uppercase leading-none">CRIMSON</h1>
+                    <h1 className="text-lg font-bold tracking-[0.2em] text-neutral-100 uppercase leading-none">CRIMSONS</h1>
                 </div>
 
                 <div className="h-4 w-[1px] bg-white/10 mx-2" />

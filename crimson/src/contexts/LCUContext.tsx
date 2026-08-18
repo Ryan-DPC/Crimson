@@ -43,6 +43,8 @@ interface LCUContextType {
         progress_ms: number;
         duration_ms: number;
         has_token: boolean;
+        has_credentials?: boolean;
+        saved_client_id?: string;
     } | null;
     spotifyConnected: boolean;
     
@@ -52,6 +54,10 @@ interface LCUContextType {
         is_deaf: boolean;
         is_camera_on: boolean;
         connected: boolean;
+        in_voice?: boolean;
+        username?: string | null;
+        current_channel_id?: string | null;
+        error?: string | null;
     } | null;
     discordConnected: boolean;
     
@@ -77,6 +83,7 @@ interface LCUContextType {
     spotifyCommand: (endpoint: string) => void;
     discordCommand: (endpoint: string, params?: any) => void;
     togglePlugin: (plugin: string, enabled: boolean) => Promise<void>;
+    resyncAuthSession: () => void;
     seasonStats: { wins: number, losses: number } | null;
 }
 
@@ -141,7 +148,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
             const { getVersion } = await import('@tauri-apps/api/app');
             const currentV = await getVersion();
-            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimson/releases');
+            const resp = await fetch('https://api.github.com/repos/Ryan-DPC/Crimsons/releases');
             if (resp.ok) {
                 const data = await resp.json();
                 let highestV = currentV;
@@ -362,7 +369,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
 
                 const d = await invoke<any>('get_app_data');
+                // Surgical hist update — avoid rewriting unrelated prefs when possible.
                 d.hist = uniqueHist;
+                // Keep known Spotify / onboarding fields if this poll raced a heal.
                 await invoke('set_app_data', { data: d });
                 setAppData(d);
             } catch {}
@@ -503,6 +512,9 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // --- EFFECTS ---
     // --- WS CONNECTION ---
     const socketsRef = useRef<Record<number, WebSocket>>({});
+    // Keep latest session for WS onopen without re-binding the socket.
+    const sessionRef = useRef(session);
+    useEffect(() => { sessionRef.current = session; }, [session]);
 
     const connectWs = () => {
         connectSingleWs(40510);
@@ -527,12 +539,37 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         ws.onopen = () => {
             console.log(`Connected to service on port ${port}`);
-            if (port === 40510) setServerConnected(true);
+            if (port === 40510) {
+                setServerConnected(true);
+                // Pull disk prefs immediately — server may have been running for hours.
+                invoke<any>('get_app_data').then(setAppData).catch(() => {});
+                // Ask sidecar for Spotify auth + plugin prefs (has_token even if Hub off).
+                try {
+                    ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+                } catch { /* ignore */ }
+                // Push session only when we actually have a token (never null-clear).
+                const s = sessionRef.current;
+                if (s?.access_token) {
+                    try {
+                        ws.send(JSON.stringify({
+                            type: 'AUTH_SESSION',
+                            access_token: s.access_token,
+                            refresh_token: s.refresh_token ?? null,
+                        }));
+                    } catch { /* ignore */ }
+                }
+            }
             socketsRef.current[port] = ws;
         };
 
         ws.onmessage = async (event) => {
-            const msg = JSON.parse(event.data);
+            let msg;
+            try {
+                msg = JSON.parse(event.data);
+            } catch (e) {
+                console.error('Failed to parse WS message:', e);
+                return;
+            }
             handleWsMessage(msg);
         };
 
@@ -557,17 +594,35 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const ws = socketsRef.current[40510];
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-        // Seuls les jetons partent : le serveur connait deja son point de
-        // verification, le lui laisser choisir serait la faille. Le jeton de
-        // rafraichissement lui permet de se reauthentifier seul au demarrage,
-        // sans quoi toutes les actions StreamDock etaient refusees tant que
-        // cette application n'etait pas ouverte.
+        // Never send a null AUTH_SESSION — that used to clear_session() and wipe
+        // the refresh token, desyncing StreamDock premium until the next login.
+        if (!session?.access_token) return;
+
         ws.send(JSON.stringify({
             type: 'AUTH_SESSION',
-            access_token: session?.access_token ?? null,
-            refresh_token: session?.refresh_token ?? null,
+            access_token: session.access_token,
+            refresh_token: session.refresh_token ?? null,
         }));
+        // Re-sync Spotify / plugins after auth lands (entitlement may flip services on).
+        try {
+            ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+        } catch { /* ignore */ }
     }, [session, authLoading, serverConnected]);
+
+    /** Force le sidecar a revalider is_premium (apres achat) sans relancer l'app. */
+    const resyncAuthSession = () => {
+        const ws = socketsRef.current[40510];
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (!session?.access_token) return;
+        ws.send(JSON.stringify({
+            type: 'AUTH_SESSION',
+            access_token: session.access_token,
+            refresh_token: session.refresh_token ?? null,
+        }));
+        try {
+            ws.send(JSON.stringify({ type: 'SYNC_STATE' }));
+        } catch { /* ignore */ }
+    };
 
     const handleWsMessage = async (msg: any) => {
         if (msg.type === 'GAME_PHASE') {
@@ -602,9 +657,30 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else if (msg.type === 'HEARTBEAT_STATUS') {
             if (msg.server !== undefined) setServerConnected(msg.server);
             if (msg.lol !== undefined) setLolConnected(msg.lol);
+            if (msg.discord !== undefined) {
+                setDiscordConnected(!!msg.discord);
+                setDiscordState((prev: any) => ({
+                    ...(prev || {}),
+                    connected: !!msg.discord,
+                }));
+            }
         } else if (msg.type === 'SPOTIFY_STATE') {
-            setSpotifyState(msg.data);
-            setSpotifyConnected(msg.data?.has_token || false);
+            setSpotifyState((prev: any) => ({
+                ...(prev || {}),
+                ...msg.data,
+                has_credentials: msg.data?.has_credentials ?? prev?.has_credentials,
+                saved_client_id: msg.data?.saved_client_id || prev?.saved_client_id || '',
+            }));
+            setSpotifyConnected(!!msg.data?.has_token);
+        } else if (msg.type === 'PLUGIN_PREFS') {
+            // Server truth for Hub toggles — merge into appData without wiping other keys.
+            setAppData((prev: any) => {
+                const next = { ...(prev || {}) };
+                if (msg.plugins && typeof msg.plugins === 'object') {
+                    next.plugins = { ...(next.plugins || {}), ...msg.plugins };
+                }
+                return next;
+            });
         } else if (msg.type === 'DISCORD_STATE') {
             setDiscordState(msg.data);
             setDiscordConnected(msg.data?.connected || false);
@@ -633,11 +709,20 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (build) {
                 doImport(build, idx);
             }
+        } else if (msg.type === 'SPOTIFY_CALLBACK_RESULT') {
+            if (msg.ok) {
+                setSpotifyConnected(true);
+                setSpotifyState((prev: any) => ({ ...(prev || {}), has_token: true }));
+            } else {
+                console.error('Spotify OAuth failed:', msg.error);
+            }
         } else if (msg.type === 'SPOTIFY_CALLBACK_CODE') {
-            // Credentials stay in data.json only — never in localStorage / query strings.
+            // Fallback only when the sidecar could not exchange itself.
             invoke('exchange_spotify_token', {
                 code: msg.code
             }).then(() => {
+                setSpotifyConnected(true);
+                setSpotifyState((prev: any) => ({ ...(prev || {}), has_token: true }));
                 console.log("Spotify Connected Successfully");
             }).catch(console.error);
         }
@@ -688,7 +773,11 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     useEffect(() => {
         const cname = getChampName(simMode ? 517 : myChamp, champs);
         if (!cname || cname === 'Inconnu' || cname === '') {
-            if (myChamp === 0 && !simMode) setBuilds([]);
+            if (myChamp === 0 && !simMode) {
+                setBuilds([]);
+                // Reset the fetch guard so re-picking the same champion reloads builds.
+                lastFetchParams.current = '';
+            }
             return;
         }
 
@@ -828,7 +917,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                                 associatedMaps: [11],
                                                 blocks: [{
                                                     items: data.items.slice(0, 15).map((id: number) => ({ id: id.toString(), count: 1 })),
-                                                    type: "OP.GG Crimson Scrape"
+                                                    type: "OP.GG Crimsons Scrape"
                                                 }],
                                                 map: "any",
                                                 mode: "any",
@@ -837,7 +926,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                                 startedFrom: "blank",
                                                 type: "custom",
                                                 uid: "crimson-opgg",
-                                                title: "Crimson Build (OP.GG)"
+                                                title: "Crimsons Build (OP.GG)"
                                             }],
                                             timestamp: Date.now()
                                         };
@@ -915,16 +1004,16 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const finalPerks = [...(build.perkIds || []), ...(build.shards || [])].slice(0, 9);
             while(finalPerks.length < 9) finalPerks.push(5001);
 
-            // Delete CRIMSON pages
+            // Delete Crimsons rune pages (also legacy "CRIMSON:" prefix from older builds)
             const pagesStr = await invoke<string>('lcu_request', { method: 'GET', endpoint: '/lol-perks/v1/pages', body: null });
             const pages = JSON.parse(pagesStr);
-            for (const p of pages.filter((p: any) => p.isEditable && p.name.startsWith("CRIMSON:"))) {
+            for (const p of pages.filter((p: any) => p.isEditable && (p.name.startsWith("CRIMSONS:") || p.name.startsWith("CRIMSON:")))) {
                 await invoke('lcu_request', { method: 'DELETE', endpoint: `/lol-perks/v1/pages/${p.id}`, body: null });
             }
 
             await invoke('lcu_request', {
                 method: 'POST', endpoint: '/lol-perks/v1/pages', body: JSON.stringify({
-                    name: `CRIMSON: ${getChampName(myChamp, champs)}`,
+                    name: `CRIMSONS: ${getChampName(myChamp, champs)}`,
                     primaryStyleId: build.primaryStyleId,
                     subStyleId: build.subStyleId,
                     selectedPerkIds: finalPerks,
@@ -956,20 +1045,31 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const loginSpotify = async (clientId: string, clientSecret: string) => {
         // Persist to data.json and push to the sidecar — never localStorage.
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
+        // Empty secret means "reuse what is already on disk / cache".
+        const d = await invoke<any>('get_app_data');
+        const resolvedId = clientId.trim() || d.spotifyClientId || '';
+        const resolvedSecret = clientSecret.trim() || d.spotifyClientSecret || '';
+        if (resolvedId) d.spotifyClientId = resolvedId;
+        if (resolvedSecret) d.spotifyClientSecret = resolvedSecret;
+        await invoke('set_app_data', { data: d });
+        setAppData(d);
+
+        if (!resolvedId) {
+            throw new Error('Client ID Spotify manquant.');
+        }
+
         const ws = socketsRef.current[40510];
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN && resolvedId && resolvedSecret) {
             ws.send(JSON.stringify({
                 type: 'SPOTIFY_CREDENTIALS',
-                client_id: clientId,
-                client_secret: clientSecret
+                client_id: resolvedId,
+                client_secret: resolvedSecret
             }));
         }
 
         const redirectUri = 'http://127.0.0.1:40510/callback';
         const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
-        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${encodeURIComponent(resolvedId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
         
         const { open } = await import('@tauri-apps/plugin-shell');
         await open(authUrl);
@@ -1036,6 +1136,7 @@ export const LCUProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             spotifyCommand,
             discordCommand,
             togglePlugin,
+            resyncAuthSession,
             seasonStats,
             draftAnalysis,
             isAnalyzingDraft

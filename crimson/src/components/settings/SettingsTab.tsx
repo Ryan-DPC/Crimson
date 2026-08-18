@@ -7,7 +7,7 @@ import {
     Settings as SettingsIcon, Shield, Check, 
     RefreshCw, Zap, Power, 
     AlertCircle, Activity, Layout, Terminal,
-    Eye, EyeOff, Key, Compass, Music
+    Key, Compass, Music
 } from 'lucide-react';
 
 // Reusable animated toggle component
@@ -38,36 +38,96 @@ const SettingsTab = () => {
         appData, updateSetting, loginSpotify,
         updateStatus, updateProgress, availableVersion, 
         checkUpdates, installUpdate, serverConnected, 
-        togglePlugin, spotifyConnected, spotifyState
+        togglePlugin, spotifyConnected, spotifyState,
+        resyncAuthSession
     } = useLCU();
     
-    const { isPremium, signOut } = useAuth();
+    const { isPremium, signOut, refreshPremium } = useAuth();
     
     const [activeTab, setActiveTab] = useState<'app' | 'server' | 'plugins'>('app');
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
     const [isRestarting, setIsRestarting] = useState(false);
     const [actualServerPath, setActualServerPath] = useState<string>('Recherche du chemin...');
+    const [premiumRefreshing, setPremiumRefreshing] = useState(false);
     
-    // Custom settings inputs
-    const [showGeminiKey, setShowGeminiKey] = useState(false);
-    const [geminiKeyInput, setGeminiKeyInput] = useState(appData?.geminiApiKey || '');
+    // Custom settings inputs — secrets stay masked once saved; editing replaces, never reveals.
+    const [geminiKeyInput, setGeminiKeyInput] = useState('');
+    const [geminiEditing, setGeminiEditing] = useState(!(appData?.geminiApiKey));
+    const [geminiTestStatus, setGeminiTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
+    const [geminiTestMsg, setGeminiTestMsg] = useState<string | null>(null);
     const [premiumTokenInput, setPremiumTokenInput] = useState(appData?.premiumToken || '');
-    const [showSpotifySecret, setShowSpotifySecret] = useState(false);
-    const [spotifyIdInput, setSpotifyIdInput] = useState(appData?.spotifyClientId || '');
-    const [spotifySecretInput, setSpotifySecretInput] = useState(appData?.spotifyClientSecret || '');
+    const [spotifyIdInput, setSpotifyIdInput] = useState('');
+    const [spotifySecretInput, setSpotifySecretInput] = useState('');
+    const [spotifyEditing, setSpotifyEditing] = useState(!(appData?.spotifyClientId && appData?.spotifyClientSecret));
+    const [spotifyReplacingSecret, setSpotifyReplacingSecret] = useState(false);
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
+    const [discordClientIdInput, setDiscordClientIdInput] = useState(appData?.discordClientId || '');
 
     useEffect(() => {
         if (appData) {
-            setGeminiKeyInput(appData.geminiApiKey || '');
             setPremiumTokenInput(appData.premiumToken || '');
-            setSpotifyIdInput(appData.spotifyClientId || '');
-            setSpotifySecretInput(appData.spotifyClientSecret || '');
+            setDiscordClientIdInput(appData.discordClientId || '');
+            const hasGemini = !!appData.geminiApiKey;
+            const savedId = appData.spotifyClientId || spotifyState?.saved_client_id || '';
+            const hasSpotifyCreds = !!(savedId && (appData.spotifyClientSecret || spotifyState?.has_credentials));
+            const associated = hasSpotifyCreds || spotifyConnected || !!spotifyState?.has_token;
+            if (!geminiEditing) {
+                setGeminiKeyInput(hasGemini ? '' : '');
+            }
+            if (!hasGemini) setGeminiEditing(true);
+            if (!associated) {
+                setSpotifyEditing(true);
+            }
+            if (!spotifyEditing) {
+                setSpotifyIdInput(savedId);
+                setSpotifySecretInput('');
+                setSpotifyReplacingSecret(false);
+            } else if (!spotifyIdInput && savedId) {
+                setSpotifyIdInput(savedId);
+            }
         }
-    }, [appData]);
+    }, [appData, spotifyConnected, spotifyState?.has_token]);
 
     const handleSaveGeminiKey = async () => {
-        await updateSetting('geminiApiKey', geminiKeyInput);
+        const key = geminiKeyInput.trim();
+        if (!key) return;
+        await updateSetting('geminiApiKey', key);
+        setGeminiKeyInput('');
+        setGeminiEditing(false);
+        setGeminiTestStatus('idle');
+        setGeminiTestMsg(null);
+    };
+
+    const handleTestGeminiKey = async () => {
+        const key = (geminiEditing ? geminiKeyInput.trim() : '') || (appData?.geminiApiKey || '');
+        if (!key) {
+            setGeminiTestStatus('fail');
+            setGeminiTestMsg('Aucune clé à tester.');
+            return;
+        }
+        setGeminiTestStatus('testing');
+        setGeminiTestMsg(null);
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=${encodeURIComponent(key)}`;
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: 'Réponds uniquement: OK' }] }],
+                }),
+            });
+            if (resp.ok) {
+                setGeminiTestStatus('ok');
+                setGeminiTestMsg('Clé valide — Gemini répond.');
+            } else {
+                const body = await resp.text().catch(() => '');
+                setGeminiTestStatus('fail');
+                setGeminiTestMsg(`Échec HTTP ${resp.status}${body ? ' — vérifiez la clé' : ''}`);
+            }
+        } catch {
+            setGeminiTestStatus('fail');
+            setGeminiTestMsg('Impossible de joindre l’API Gemini.');
+        }
     };
 
     const handleSavePremiumToken = async () => {
@@ -77,24 +137,31 @@ const SettingsTab = () => {
         await updateSetting('premiumToken', premiumTokenInput);
     };
 
-    const handleSaveSpotifyCredentials = async () => {
-        const clientId = spotifyIdInput.trim();
-        const clientSecret = spotifySecretInput.trim();
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
+    const handleRefreshPremium = async () => {
+        setPremiumRefreshing(true);
         try {
-            localStorage.removeItem('spotify_client_secret');
-            localStorage.removeItem('spotify_client_id');
-        } catch { /* ignore */ }
-        setSpotifyError(null);
+            await refreshPremium();
+            resyncAuthSession();
+        } finally {
+            setPremiumRefreshing(false);
+        }
+    };
+
+    const savedSpotifyId = appData?.spotifyClientId || spotifyState?.saved_client_id || '';
+    const hasSavedSecret = !!(appData?.spotifyClientSecret || spotifyState?.has_credentials);
+
+    const resolveSpotifyCredentials = () => {
+        const clientId = spotifyIdInput.trim() || savedSpotifyId;
+        const clientSecret = spotifySecretInput.trim() || (appData?.spotifyClientSecret || '');
+        return { clientId, clientSecret, canReuseSecret: hasSavedSecret || !!clientSecret };
     };
 
     const handleConnectSpotify = async () => {
-        const clientId = spotifyIdInput.trim();
-        const clientSecret = spotifySecretInput.trim();
+        const { clientId, clientSecret, canReuseSecret } = resolveSpotifyCredentials();
 
-        if (!clientId || !clientSecret) {
+        if (!clientId || (!clientSecret && !canReuseSecret)) {
             setSpotifyError("Renseignez d'abord le Client ID et le Client Secret de votre application Spotify.");
+            setSpotifyEditing(true);
             return;
         }
         setSpotifyError(null);
@@ -103,6 +170,10 @@ const SettingsTab = () => {
             localStorage.removeItem('spotify_client_secret');
             localStorage.removeItem('spotify_client_id');
             await loginSpotify(clientId, clientSecret);
+            setSpotifyIdInput(clientId);
+            setSpotifySecretInput('');
+            setSpotifyReplacingSecret(false);
+            setSpotifyEditing(false);
         } catch (e) {
             console.error("Failed to open Spotify auth", e);
             setSpotifyError("Impossible d'ouvrir la page d'autorisation Spotify.");
@@ -144,12 +215,11 @@ const SettingsTab = () => {
 
     useEffect(() => {
         const checkPlugins = async () => {
+            // Pack de base : LoL + Spotify. Discord = optionnel (pas Hue/Twitch en hub).
             const ids = {
                 leagueOfLegends: "com.laoy.streamdock.crimson",
                 spotify: "com.laoy.streamdock.spotify",
                 discord: "com.laoy.streamdock.discord",
-                twitch: "com.laoy.streamdock.twitch",
-                hue: "com.laoy.streamdock.hue"
             };
             const installed: Record<string, boolean> = {};
             for (const [key, id] of Object.entries(ids)) {
@@ -173,8 +243,6 @@ const SettingsTab = () => {
                 leagueOfLegends: true,
                 spotify: false,
                 discord: false,
-                twitch: false,
-                hue: false
             });
         }
     }, [appData]);
@@ -190,7 +258,7 @@ const SettingsTab = () => {
                     <div>
                         <h2 className="text-3xl font-black text-white uppercase tracking-[0.15em]">Configuration</h2>
                         <div className="flex items-center gap-2 mt-1.5 font-black uppercase tracking-widest text-[10px]">
-                            <span className="text-white/20">Crimson Center</span>
+                            <span className="text-white/20">Crimsons Center</span>
                             <span className="w-1 h-1 bg-white/10 rounded-full" />
                             <span className="text-red-500/60">Version {currentVersion}</span>
                         </div>
@@ -208,19 +276,19 @@ const SettingsTab = () => {
                     />
                     <button 
                         onClick={() => setActiveTab('app')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'app' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
-                        Crimson
+                        CRIMSONS
                     </button>
                     <button 
                         onClick={() => setActiveTab('server')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'server' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Serveur
                     </button>
                     <button 
                         onClick={() => setActiveTab('plugins')}
-                        className={`relative z-10 w-28 py-3 text-[11px] font-black uppercase tracking-widest transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
+                        className={`relative z-10 w-36 py-3 text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors duration-300 text-center ${activeTab === 'plugins' ? 'text-white' : 'text-white/30 hover:text-white/50'}`}
                     >
                         Hub
                     </button>
@@ -243,7 +311,7 @@ const SettingsTab = () => {
                                         </div>
                                         <div>
                                             <h3 className="text-lg font-black text-white uppercase tracking-widest">Update Center</h3>
-                                            <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Maintenir Crimson à la pointe</p>
+                                            <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Maintenir Crimsons à la pointe</p>
                                         </div>
                                     </div>
                                     <span className="text-[10px] font-black text-white/10 uppercase tracking-widest font-mono">Channel: Production</span>
@@ -298,12 +366,6 @@ const SettingsTab = () => {
                                         onChange={(v) => updateSetting('closeToTray', v)}
                                     />
                                 </div>
-                                <button
-                                    onClick={() => updateSetting('firstLaunchFinished', undefined)}
-                                    className="w-full mt-8 px-4 py-3 bg-white/5 hover:bg-white/10 text-white/70 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
-                                >
-                                    Recommencer le tutoriel de bienvenue
-                                </button>
                             </div>
 
                             {/* ACCOUNT */}
@@ -315,13 +377,15 @@ const SettingsTab = () => {
                                     <h3 className="text-sm font-black text-white uppercase tracking-widest font-mono">Compte & Sécurité</h3>
                                 </div>
                                 
-                                <div className="flex items-center justify-between p-4 bg-black/20 rounded-2xl border border-white/5">
-                                    <div className="flex flex-col">
-                                        <span className="text-[11px] font-black text-white/70 uppercase tracking-widest">Statut du compte</span>
-                                        <span className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${isPremium ? 'text-green-500 animate-pulse' : 'text-white/30'}`}>
-                                            {isPremium ? '★ PREMIUM ACTIVÉ' : 'ACCÈS STANDARD'}
-                                        </span>
-                                    </div>
+                                <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                        onClick={handleRefreshPremium}
+                                        disabled={premiumRefreshing}
+                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border border-white/10 flex items-center gap-1.5 disabled:opacity-50"
+                                    >
+                                        <RefreshCw className={`w-3 h-3 ${premiumRefreshing ? 'animate-spin' : ''}`} />
+                                        Actualiser le statut
+                                    </button>
                                     <button 
                                         onClick={() => signOut()}
                                         className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border border-red-500/20"
@@ -331,13 +395,13 @@ const SettingsTab = () => {
                                 </div>
 
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Clé Premium Crimson (Jeton)</label>
+                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Référence Premium (ne débloque pas le compte)</label>
                                     <div className="flex gap-2">
                                         <input 
                                             type="text" 
                                             value={premiumTokenInput}
                                             onChange={(e) => setPremiumTokenInput(e.target.value)}
-                                            placeholder="Token d'abonnement manuel..." 
+                                            placeholder="Jeton de référence uniquement…" 
                                             className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
                                         />
                                         <button 
@@ -396,28 +460,51 @@ const SettingsTab = () => {
                                         </a>
                                     </div>
                                     
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 relative">
+                                    {geminiEditing || !appData?.geminiApiKey ? (
+                                        <div className="flex gap-2">
                                             <input 
-                                                type={showGeminiKey ? "text" : "password"} 
+                                                type="password" 
                                                 value={geminiKeyInput}
                                                 onChange={(e) => setGeminiKeyInput(e.target.value)}
                                                 placeholder="Clé d'API Google Gemini..." 
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                                autoComplete="off"
+                                                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
                                             />
-                                            <button 
-                                                onClick={() => setShowGeminiKey(!showGeminiKey)}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                                            <button
+                                                onClick={handleSaveGeminiKey}
+                                                disabled={!geminiKeyInput.trim()}
+                                                className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
                                             >
-                                                {showGeminiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                Sauver
                                             </button>
                                         </div>
+                                    ) : (
+                                        <div className="flex gap-2 items-center">
+                                            <div className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white/50 tracking-widest">
+                                                ••••••••••••••••
+                                            </div>
+                                            <button
+                                                onClick={() => { setGeminiEditing(true); setGeminiKeyInput(''); }}
+                                                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                            >
+                                                Remplacer
+                                            </button>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 pt-1">
                                         <button
-                                            onClick={handleSaveGeminiKey}
-                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                            onClick={handleTestGeminiKey}
+                                            disabled={geminiTestStatus === 'testing' || (!(geminiKeyInput.trim()) && !appData?.geminiApiKey)}
+                                            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 disabled:opacity-40 text-red-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-red-500/20 flex items-center gap-1.5"
                                         >
-                                            Sauver
+                                            {geminiTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                            Tester
                                         </button>
+                                        {geminiTestMsg && (
+                                            <span className={`text-[9px] font-black uppercase tracking-widest ${geminiTestStatus === 'ok' ? 'text-green-500' : 'text-red-400'}`}>
+                                                {geminiTestMsg}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -434,83 +521,127 @@ const SettingsTab = () => {
                                             <span className="text-[9px] text-white/30 font-bold uppercase tracking-widest">Votre application, vos identifiants</span>
                                         </div>
                                     </div>
-                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${spotifyConnected ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                                        <Activity className={`w-3.5 h-3.5 ${spotifyConnected ? 'animate-pulse' : ''}`} />
-                                        <span className="text-[10px] font-black uppercase tracking-tighter">{spotifyConnected ? 'Connecté' : 'Non connecté'}</span>
+                                    <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border ${(spotifyConnected || spotifyState?.has_token) ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                                        <Activity className={`w-3.5 h-3.5 ${(spotifyConnected || spotifyState?.has_token) ? 'animate-pulse' : ''}`} />
+                                        <span className="text-[10px] font-black uppercase tracking-tighter">{(spotifyConnected || spotifyState?.has_token) ? 'Connecté' : 'Non connecté'}</span>
                                     </div>
                                 </div>
 
-                                <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
-                                    Créez une application sur le tableau de bord développeur Spotify, déclarez-y l'URL de redirection ci-dessous, puis collez vos identifiants. Ils ne quittent jamais votre machine.
-                                </p>
-
-                                <div className="flex items-center justify-between gap-4 bg-black/40 border border-white/5 px-4 py-3 rounded-xl">
-                                    <span className="text-[9px] font-black text-white/40 uppercase tracking-widest shrink-0">URL de redirection à déclarer</span>
-                                    <code className="text-[10px] font-mono text-white/70 truncate">http://127.0.0.1:40510/callback</code>
-                                </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex justify-between items-center pl-2">
-                                        <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Client ID</label>
-                                        <a
-                                            href="https://developer.spotify.com/dashboard"
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
-                                        >
-                                            <Compass size={10} /> Créer une application
-                                        </a>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        value={spotifyIdInput}
-                                        onChange={(e) => setSpotifyIdInput(e.target.value)}
-                                        placeholder="Client ID de votre application Spotify..."
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
-                                    />
-                                </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Client Secret</label>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 relative">
-                                            <input
-                                                type={showSpotifySecret ? "text" : "password"}
-                                                value={spotifySecretInput}
-                                                onChange={(e) => setSpotifySecretInput(e.target.value)}
-                                                placeholder="Client Secret de votre application Spotify..."
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
-                                            />
+                                {(spotifyConnected || spotifyState?.has_token) && !spotifyEditing ? (
+                                    <>
+                                        <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
+                                            Identifiants enregistrés. Activez Spotify dans l’onglet Hub pour StreamDock.
+                                        </p>
+                                        <div className="flex gap-2">
                                             <button
-                                                onClick={() => setShowSpotifySecret(!showSpotifySecret)}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                                                onClick={handleConnectSpotify}
+                                                className="flex-1 py-3 bg-green-600/80 hover:bg-green-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                             >
-                                                {showSpotifySecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                Reconnecter Spotify
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setSpotifyEditing(true);
+                                                    setSpotifyIdInput(savedSpotifyId);
+                                                    setSpotifySecretInput('');
+                                                    setSpotifyReplacingSecret(false);
+                                                }}
+                                                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                            >
+                                                Identifiants
                                             </button>
                                         </div>
-                                        <button
-                                            onClick={handleSaveSpotifyCredentials}
-                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
-                                        >
-                                            Sauver
-                                        </button>
-                                    </div>
-                                </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-[10px] text-white/40 leading-relaxed uppercase tracking-wider font-semibold">
+                                            Setup une seule fois : 1) créer une app sur le dashboard Spotify Developer · 2) y déclarer l’URL de redirection · 3) coller Client ID / Secret · 4) Associer. Contrôle StreamDock = Premium.
+                                        </p>
 
-                                {spotifyError && (
-                                    <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl text-[9px] font-black text-red-400 uppercase tracking-widest">
-                                        <AlertCircle size={12} className="shrink-0" />
-                                        {spotifyError}
-                                    </div>
+                                        <div className="flex items-center justify-between gap-4 bg-black/40 border border-white/5 px-4 py-3 rounded-xl">
+                                            <span className="text-[9px] font-black text-white/40 uppercase tracking-widest shrink-0">URL de redirection à déclarer</span>
+                                            <code className="text-[10px] font-mono text-white/70 truncate">http://127.0.0.1:40510/callback</code>
+                                        </div>
+
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center pl-2">
+                                                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Client ID</label>
+                                                <a
+                                                    href="https://developer.spotify.com/dashboard"
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
+                                                >
+                                                    <Compass size={10} /> Créer une application
+                                                </a>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={spotifyIdInput}
+                                                onChange={(e) => setSpotifyIdInput(e.target.value)}
+                                                placeholder="Client ID de votre application Spotify..."
+                                                autoComplete="off"
+                                                spellCheck={false}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[9px] font-black text-white/40 uppercase tracking-widest pl-2">Client Secret</label>
+                                            {hasSavedSecret && !spotifyReplacingSecret ? (
+                                                <div className="flex gap-2 items-center">
+                                                    <div className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white/50 uppercase tracking-widest">
+                                                        Enregistré
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSpotifyReplacingSecret(true);
+                                                            setSpotifySecretInput('');
+                                                        }}
+                                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                        type="button"
+                                                    >
+                                                        Remplacer
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <input
+                                                    type="password"
+                                                    value={spotifySecretInput}
+                                                    onChange={(e) => setSpotifySecretInput(e.target.value)}
+                                                    placeholder={hasSavedSecret ? 'Nouveau secret… (vide = conserver)' : 'Client Secret de votre application Spotify...'}
+                                                    autoComplete="off"
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-red-600 transition-colors"
+                                                />
+                                            )}
+                                        </div>
+
+                                        {spotifyError && (
+                                            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl text-[9px] font-black text-red-400 uppercase tracking-widest">
+                                                <AlertCircle size={12} className="shrink-0" />
+                                                {spotifyError}
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={handleConnectSpotify}
+                                                disabled={!resolveSpotifyCredentials().clientId || !resolveSpotifyCredentials().canReuseSecret}
+                                                className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                            >
+                                                {(spotifyConnected || spotifyState?.has_token) ? 'Reconnecter Spotify' : 'Associer Spotify'}
+                                            </button>
+                                            {(spotifyConnected || spotifyState?.has_token) && (
+                                                <button
+                                                    onClick={() => setSpotifyEditing(false)}
+                                                    className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                >
+                                                    Annuler
+                                                </button>
+                                            )}
+                                        </div>
+                                    </>
                                 )}
-
-                                <button
-                                    onClick={handleConnectSpotify}
-                                    disabled={!spotifyIdInput.trim() || !spotifySecretInput.trim()}
-                                    className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    {spotifyConnected ? 'Reconnecter Spotify' : 'Associer Spotify'}
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -580,7 +711,7 @@ const SettingsTab = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-sm font-black text-white uppercase tracking-widest font-mono">Hub des Plugins</h3>
-                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Activer ou désactiver les intégrations matérielles et vérifier leur présence</p>
+                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Activer ou désactiver un plugin — les identifiants se gèrent dans CRIMSONS</p>
                                 </div>
                             </div>
                             
@@ -589,39 +720,28 @@ const SettingsTab = () => {
                                     {
                                         key: 'leagueOfLegends',
                                         name: 'League of Legends',
-                                        desc: 'Contrôle de l\'auto-accept et de la sélection des champions',
-                                        comingSoon: false,
+                                        desc: 'Auto-accept, pick/ban et contrôle StreamDock (pack de base)',
+                                        tier: 'base' as const,
                                     },
                                     {
                                         key: 'spotify',
                                         name: 'Spotify',
-                                        desc: 'Contrôle de la lecture, de la couverture et des infos Spotify',
-                                        comingSoon: false,
+                                        desc: 'Contrôle de lecture et covers (pack de base)',
+                                        tier: 'base' as const,
                                     },
                                     {
                                         key: 'discord',
                                         name: 'Discord',
-                                        desc: 'Gestion des raccourcis micro, deafen et statut Discord',
-                                        comingSoon: false,
+                                        desc: 'Mute / deafen / caméra',
+                                        tier: 'optional' as const,
                                     },
-                                    {
-                                        key: 'twitch',
-                                        name: 'Twitch (Soon)',
-                                        desc: 'Bientôt disponible — chat, pubs et compteur de viewers',
-                                        comingSoon: true,
-                                    },
-                                    {
-                                        key: 'hue',
-                                        name: 'Philips Hue (Soon)',
-                                        desc: 'Bientôt disponible — contrôle d\'éclairage ambiant',
-                                        comingSoon: true,
-                                    }
                                 ].map((plugin) => {
-                                    const isComingSoon = plugin.comingSoon;
                                     const isPremiumPlugin = plugin.key === 'spotify' || plugin.key === 'discord';
                                     const isInstalled = !!pluginsInstalled[plugin.key];
-                                    let isEnabled = isComingSoon ? false : (pluginsState[plugin.key] ?? true);
-                                    let isDisabled = isComingSoon || !isInstalled;
+                                    // Discord: intégration app IPC même sans plugin StreamDock installé
+                                    const requiresDeckPlugin = plugin.key !== 'discord';
+                                    let isEnabled = pluginsState[plugin.key] ?? (plugin.key === 'leagueOfLegends');
+                                    let isDisabled = requiresDeckPlugin && !isInstalled;
                                     
                                     if (isPremiumPlugin && !isPremium) {
                                         isEnabled = false;
@@ -633,28 +753,34 @@ const SettingsTab = () => {
                                             key={plugin.key} 
                                             className={`bg-black/20 p-6 rounded-3xl border border-white/5 flex flex-col justify-between relative group overflow-hidden ${isDisabled ? 'opacity-50 grayscale' : ''}`}
                                         >
-                                            {/* Subtle ambient light behind the card */}
-                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isComingSoon ? 'from-amber-500/5 to-transparent' : isInstalled ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
+                                            <div className={`absolute -inset-px rounded-3xl transition-opacity duration-500 opacity-0 group-hover:opacity-100 bg-gradient-to-br ${isInstalled || !requiresDeckPlugin ? 'from-green-500/5 to-transparent' : 'from-red-500/5 to-transparent'} pointer-events-none`} />
                                             
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className={`text-[9px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md border ${
-                                                    isComingSoon
-                                                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                                        : isInstalled 
+                                                    isPremiumPlugin && !isPremium
+                                                        ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                                                        : isInstalled || !requiresDeckPlugin
                                                         ? isEnabled 
                                                             ? 'bg-green-500/10 border-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.1)]' 
                                                             : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
                                                         : 'bg-white/5 border-white/5 text-white/30'
                                                 }`}>
-                                                    {isComingSoon ? "Bientôt disponible" : isPremiumPlugin && !isPremium ? "Premium Requis" : isInstalled ? (isEnabled ? "Actif & Opérationnel" : "Désactivé") : "Non détecté"}
+                                                    {isPremiumPlugin && !isPremium
+                                                        ? "Premium"
+                                                        : isInstalled || !requiresDeckPlugin
+                                                            ? (isEnabled ? "Actif" : "Off")
+                                                            : "Off"}
                                                 </span>
                                                 
-                                                {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
+                                                {plugin.tier === 'optional' && (
+                                                    <span className="text-[9px] font-black text-white/25 uppercase tracking-widest">Optionnel</span>
+                                                )}
+                                                {requiresDeckPlugin && !isInstalled && (!isPremiumPlugin || isPremium) && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-red-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Plugin requis
                                                     </div>
                                                 )}
-                                                {!isComingSoon && isPremiumPlugin && !isPremium && (
+                                                {isPremiumPlugin && !isPremium && (
                                                     <div className="flex items-center gap-1 text-[9px] font-black text-orange-500/60 uppercase tracking-widest">
                                                         <AlertCircle className="w-3 h-3" /> Lock
                                                     </div>
@@ -670,36 +796,54 @@ const SettingsTab = () => {
                                                 }}
                                                 disabled={isDisabled}
                                             />
-                                            
-                                            {plugin.key === 'spotify' && isEnabled && !(spotifyConnected || spotifyState?.has_token) && (
-                                                <button 
-                                                    onClick={handleConnectSpotify}
-                                                    className="w-full mt-4 py-3 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-green-500/20 shadow-md hover:scale-[1.02] active:scale-95"
-                                                >
-                                                    Associer Spotify
-                                                </button>
-                                            )}
 
                                             {plugin.key === 'discord' && isEnabled && (
-                                                <div className="w-full mt-4 py-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase tracking-widest text-center rounded-xl">
-                                                    Détection Automatique (IPC)
+                                                <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
+                                                    <div className="flex justify-between items-center">
+                                                        <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">Discord Client ID</label>
+                                                        <a
+                                                            href="https://discord.com/developers/applications"
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="text-indigo-400 hover:text-indigo-300 text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1"
+                                                        >
+                                                            <Compass size={10} /> Créer une application
+                                                        </a>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={discordClientIdInput}
+                                                            onChange={(e) => setDiscordClientIdInput(e.target.value)}
+                                                            placeholder="Application ID Discord…"
+                                                            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] font-mono text-white outline-none focus:border-indigo-500 transition-colors"
+                                                        />
+                                                        <button
+                                                            onClick={async () => {
+                                                                await updateSetting('discordClientId', discordClientIdInput.trim());
+                                                            }}
+                                                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5"
+                                                        >
+                                                            Sauver
+                                                        </button>
+                                                    </div>
+                                                    <p className="text-[9px] text-white/25 uppercase font-bold tracking-widest leading-relaxed">
+                                                        Requis pour le statut vocal. Discord Developer Portal → New Application → copier l’Application ID.
+                                                    </p>
                                                 </div>
                                             )}
-                                            
-                                            {!isComingSoon && !isInstalled && (!isPremiumPlugin || isPremium) && (
+                                            {plugin.key === 'discord' && !isInstalled && isPremium && (
                                                 <p className="text-[9px] text-white/20 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Installez ce plugin sur votre Stream Deck pour l'activer.
-                                                </p>
-                                            )}
-                                            {isComingSoon && (
-                                                <p className="text-[9px] text-amber-500/40 uppercase font-black tracking-widest mt-2 border-t border-white/5 pt-2">
-                                                    Intégration en cours — non disponible pour le moment.
+                                                    Plugin StreamDock optionnel — inject : -IncludeDiscord
                                                 </p>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
+                            <p className="mt-8 text-[10px] text-white/25 uppercase font-bold tracking-widest leading-relaxed">
+                                Pack de base : LoL + Spotify. Hue, Twitch et d’autres intégrations arriveront comme plugins externes téléchargeables (gratuits ou premium — communauté).
+                            </p>
                         </section>
                     </div>
                 )}

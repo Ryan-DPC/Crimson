@@ -18,6 +18,13 @@ pub struct SpotifyState {
     pub progress_ms: u32,
     pub duration_ms: u32,
     pub has_token: bool,
+    /// Client ID + Secret already on disk (data.json / spotify_cache). UI must
+    /// not force a re-paste when this is true.
+    #[serde(default)]
+    pub has_credentials: bool,
+    /// Public Client ID only — never the secret — so Settings can prefill.
+    #[serde(default)]
+    pub saved_client_id: String,
     pub volume_percent: u32,
     pub shuffle_state: bool,
     pub smart_shuffle: bool,
@@ -81,6 +88,18 @@ impl SpotifyClient {
         if self.client_secret.is_empty() && !app.spotify_client_secret.is_empty() {
             self.client_secret = app.spotify_client_secret;
         }
+        // Fallback: Tauri may have written only flatten-other keys before the
+        // sidecar typed fields were populated.
+        if self.client_id.is_empty() {
+            if let Some(id) = app.other.get("spotifyClientId").and_then(|v| v.as_str()) {
+                self.client_id = id.to_string();
+            }
+        }
+        if self.client_secret.is_empty() {
+            if let Some(secret) = app.other.get("spotifyClientSecret").and_then(|v| v.as_str()) {
+                self.client_secret = secret.to_string();
+            }
+        }
     }
 
     pub fn save(&self) {
@@ -100,16 +119,59 @@ impl SpotifyClient {
 
         // Mirror credentials into data.json so the UI and sidecar stay aligned
         // without ever putting the secret in localStorage or URL queries.
-        if !self.client_id.is_empty() || !self.client_secret.is_empty() {
-            let path = crate::storage::get_data_path_from_env();
-            let mut data = crate::storage::load_data_from_path(path.clone());
-            if !self.client_id.is_empty() {
-                data.spotify_client_id = self.client_id.clone();
+        self.mirror_credentials_to_data_json();
+    }
+
+    /// If spotify_cache has Client ID/Secret but data.json was wiped (UI race /
+    /// Default AppData overwrite), restore them so Settings shows association.
+    /// Patches the JSON document in-place so unrelated keys (plugins, hist,
+    /// firstLaunchFinished) cannot be dropped by an AppData round-trip.
+    fn mirror_credentials_to_data_json(&self) {
+        if self.client_id.is_empty() && self.client_secret.is_empty() {
+            return;
+        }
+        let path = crate::storage::get_data_path_from_env();
+        let mut root: serde_json::Value = match std::fs::read_to_string(&path) {
+            Ok(content) if !content.trim().is_empty() => {
+                serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
             }
-            if !self.client_secret.is_empty() {
-                data.spotify_client_secret = self.client_secret.clone();
+            _ => serde_json::json!({}),
+        };
+        if !root.is_object() {
+            root = serde_json::json!({});
+        }
+        let obj = root.as_object_mut().unwrap();
+        let mut dirty = false;
+        if !self.client_id.is_empty() {
+            let cur = obj.get("spotifyClientId").and_then(|v| v.as_str()).unwrap_or("");
+            if cur.is_empty() || cur != self.client_id {
+                obj.insert(
+                    "spotifyClientId".into(),
+                    serde_json::Value::String(self.client_id.clone()),
+                );
+                dirty = true;
             }
-            crate::storage::save_data_to_path(path, &data);
+        }
+        if !self.client_secret.is_empty() {
+            let cur = obj
+                .get("spotifyClientSecret")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if cur.is_empty() || cur != self.client_secret {
+                obj.insert(
+                    "spotifyClientSecret".into(),
+                    serde_json::Value::String(self.client_secret.clone()),
+                );
+                dirty = true;
+            }
+        }
+        if dirty {
+            if let Ok(content) = serde_json::to_string_pretty(&root) {
+                let _ = std::fs::write(&path, content);
+                // Invalidate sidecar AppData cache so subsequent loads see the patch.
+                crate::storage::invalidate_cache();
+                tracing::info!("[SPOTIFY] Identifiants resynchronises vers data.json depuis le cache");
+            }
         }
     }
 }
@@ -193,8 +255,11 @@ impl SpotifyService {
     }
 
     pub fn new(sender: WsSender) -> Self {
+        let client = SpotifyClient::new();
+        // Heal data.json if tokens/creds only survive in spotify_cache.json.
+        client.mirror_credentials_to_data_json();
         Self {
-            client: Arc::new(RwLock::new(SpotifyClient::new())),
+            client: Arc::new(RwLock::new(client)),
             sender,
             playlists_cache: Arc::new(tokio::sync::Mutex::new(None)),
             devices_cache: Arc::new(tokio::sync::Mutex::new(None)),
@@ -210,6 +275,33 @@ impl SpotifyService {
 
     pub fn get_client(&self) -> Arc<RwLock<SpotifyClient>> {
         self.client.clone()
+    }
+
+    /// Auth snapshot for UI hydrate — works even when Hub toggle is off
+    /// (polling is paused, so SPOTIFY_STATE would otherwise never arrive).
+    pub async fn auth_snapshot_state(&self) -> SpotifyState {
+        let (has_token, has_credentials, saved_client_id) = {
+            let lock = self.client.read().await;
+            (
+                lock.access_token.is_some() || lock.refresh_token.is_some(),
+                !lock.client_id.is_empty() && !lock.client_secret.is_empty(),
+                lock.client_id.clone(),
+            )
+        };
+        if let Some(mut cached) = self.cached_state.read().await.clone() {
+            cached.has_token = has_token || cached.has_token;
+            cached.has_credentials = has_credentials || cached.has_credentials;
+            if cached.saved_client_id.is_empty() {
+                cached.saved_client_id = saved_client_id;
+            }
+            return cached;
+        }
+        SpotifyState {
+            has_token,
+            has_credentials,
+            saved_client_id,
+            ..Default::default()
+        }
     }
 
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<String> {
@@ -702,6 +794,7 @@ impl SpotifyService {
             track_uri: track["uri"].as_str().unwrap_or("").to_string(),
             track_id: track["id"].as_str().unwrap_or("").to_string(),
             is_liked: false,
+            ..Default::default()
         };
 
         // Fetch liked status if we have a track ID
@@ -1188,14 +1281,17 @@ impl SpotifyService {
                 if let Ok(d_json) = devices_resp.json::<serde_json::Value>().await {
                     if let Some(devices) = d_json["devices"].as_array() {
                         let target_device = devices.iter().find(|d| {
-                            d["name"].as_str().map(|n| n.to_lowercase()) == Some("crimson player".to_lowercase())
+                            matches!(
+                                d["name"].as_str().map(|n| n.to_lowercase()).as_deref(),
+                                Some("crimsons player") | Some("crimson player")
+                            )
                         });
                         if let Some(device) = target_device {
                             let device_id = device["id"].as_str().unwrap_or("");
                             url = "https://api.spotify.com/v1/me/player".to_string();
                             payload_json = Some(json!({ "device_ids": [device_id], "play": true }));
                         } else {
-                            return Err("Crimson Player device not found in active devices list".into());
+                            return Err("Crimsons Player device not found in active devices list".into());
                         }
                     } else {
                         return Err("No devices array found in response".into());
@@ -1437,15 +1533,25 @@ impl SpotifyService {
                     notify: self.notify.clone(),
                 });
 
+                // Always announce connected state first so the UI flips to
+                // CONNECTÉ even if playback fetch fails (idle / no device).
+                let _ = self.sender.0.send(json!({
+                    "type": "SPOTIFY_STATE",
+                    "data": SpotifyState { has_token: true, ..Default::default() }
+                }).to_string());
+
                 tokio::spawn(async move {
                     let _ = self_arc.fetch_user_profile().await;
-                    if let Ok(state) = Self::fetch_current_playback(&s_clone_acc).await {
-                        let _ = self_arc.sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": state }).to_string());
-                    }
+                    let state = match Self::fetch_current_playback(&s_clone_acc).await {
+                        Ok(s) => s,
+                        Err(_) => SpotifyState { has_token: true, ..Default::default() },
+                    };
+                    let _ = self_arc.sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": state }).to_string());
                 });
             }
         } else {
             eprintln!("Failed to exchange Spotify code: {:?}", resp.text().await?);
+            return Err("Spotify token exchange rejected".into());
         }
 
         Ok(())

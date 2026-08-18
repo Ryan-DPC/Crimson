@@ -74,6 +74,13 @@ pub struct AppData {
     #[serde(default)]
     pub discord_client_id: Option<String>,
 
+    // Spotify OAuth app credentials (user-owned). Typed so Tauri ↔ server
+    // round-trips cannot drop them into a mismatched flatten bucket.
+    #[serde(default)]
+    pub spotify_client_id: String,
+    #[serde(default)]
+    pub spotify_client_secret: String,
+
     #[serde(flatten)]
     pub other: HashMap<String, serde_json::Value>,
 }
@@ -108,6 +115,8 @@ impl Default for AppData {
             premium_token: None,
             custom_server_path: None,
             discord_client_id: None,
+            spotify_client_id: String::new(),
+            spotify_client_secret: String::new(),
             other: HashMap::new(),
         }
     }
@@ -170,13 +179,32 @@ pub fn get_data_path(_app: &AppHandle) -> PathBuf {
 }
 
 pub fn load_data_from_path(path: PathBuf) -> AppData {
+    let mut last_err: Option<String> = None;
     for _ in 0..5 {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(data) = serde_json::from_str(&content) {
-                return data;
+        match fs::read_to_string(&path) {
+            Ok(content) => {
+                if content.trim().is_empty() {
+                    last_err = Some("empty file".into());
+                } else {
+                    match serde_json::from_str(&content) {
+                        Ok(data) => return data,
+                        Err(e) => last_err = Some(e.to_string()),
+                    }
+                }
             }
+            Err(e) => last_err = Some(e.to_string()),
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // Never invent a blank profile over a real (briefly locked) data.json —
+    // callers that then save would wipe firstLaunchFinished / Spotify creds.
+    if path.exists() {
+        eprintln!(
+            "[storage] Failed to load {:?} after retries ({:?}); refusing Default wipe",
+            path, last_err
+        );
+        // Best-effort: return Default in-memory only. Callers must not treat this
+        // as authoritative for set_app_data without a successful read.
     }
     AppData::default()
 }
@@ -189,6 +217,28 @@ pub fn save_data_to_path(path: PathBuf, data: &AppData) {
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+    }
+}
+
+/// Load for mutation: if the file exists but cannot be parsed, return None so
+/// we do not overwrite a good file with Default.
+pub fn try_load_data_from_path(path: PathBuf) -> Option<AppData> {
+    for _ in 0..5 {
+        if let Ok(content) = fs::read_to_string(&path) {
+            if content.trim().is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                continue;
+            }
+            if let Ok(data) = serde_json::from_str(&content) {
+                return Some(data);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if path.exists() {
+        None
+    } else {
+        Some(AppData::default())
     }
 }
 
@@ -207,7 +257,52 @@ pub fn get_app_data(app: AppHandle) -> AppData {
 
 #[tauri::command]
 pub fn set_app_data(app: AppHandle, data: AppData) {
-    save_data(&app, &data);
+    // Refuse to persist a blank Default over an existing file when the payload
+    // looks uninitialized (no firstLaunchFinished and empty plugins) AND disk
+    // already has real state — still allow intentional first writes.
+    let path = get_data_path(&app);
+    if let Some(existing) = try_load_data_from_path(path.clone()) {
+        let incoming_finished = data
+            .other
+            .get("firstLaunchFinished")
+            .and_then(|v| v.as_bool());
+        let existing_finished = existing
+            .other
+            .get("firstLaunchFinished")
+            .and_then(|v| v.as_bool());
+        // Protect onboarding flag from accidental wipe via partial/default payloads.
+        let mut merged = data;
+        if existing_finished == Some(true) && incoming_finished != Some(true) {
+            merged
+                .other
+                .insert("firstLaunchFinished".into(), serde_json::Value::Bool(true));
+        }
+        // Preserve Spotify creds if the UI sent empty strings over known-good disk values.
+        if merged.spotify_client_id.is_empty() && !existing.spotify_client_id.is_empty() {
+            merged.spotify_client_id = existing.spotify_client_id;
+        }
+        if merged.spotify_client_secret.is_empty() && !existing.spotify_client_secret.is_empty() {
+            merged.spotify_client_secret = existing.spotify_client_secret;
+        }
+        // Preserve plugins map if incoming omits it or sends an empty object over a real one.
+        let incoming_plugins = merged.other.get("plugins").cloned();
+        let existing_plugins = existing.other.get("plugins").cloned();
+        match (incoming_plugins, existing_plugins) {
+            (None, Some(p)) => {
+                merged.other.insert("plugins".into(), p);
+            }
+            (Some(serde_json::Value::Object(obj)), Some(p)) if obj.is_empty() => {
+                if p.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                    merged.other.insert("plugins".into(), p);
+                }
+            }
+            _ => {}
+        }
+        save_data_to_path(path, &merged);
+    } else if !path.exists() {
+        save_data(&app, &data);
+    }
+    // If disk exists but is unreadable, skip write to avoid wipe.
 }
 
 #[tauri::command]

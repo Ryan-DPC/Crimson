@@ -28,7 +28,8 @@ function App() {
     rank, appData, updateSetting,
     updateStatus, updateProgress, availableVersion, installUpdate,
     serverConnected, lolConnected,
-    sum, v
+    sum, v,
+    loginSpotify, spotifyConnected,
   } = useLCU();
 
   const { session, loading } = useAuth();
@@ -39,10 +40,35 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
-    if (appData && appData.firstLaunchFinished === undefined) {
+    if (!appData) return;
+
+    // Already finished — never re-open full welcome.
+    if (appData.firstLaunchFinished === true) {
+      setShowOnboarding(false);
+      return;
+    }
+
+    // Heal after a Default-wipe race: evidence of prior setup means skip welcome.
+    const priorUse = !!(
+      appData.spotifyClientId ||
+      appData.geminiApiKey ||
+      appData.plugins?.spotify ||
+      appData.plugins?.discord ||
+      appData.closeToTray !== undefined && appData.closeToTray !== null ||
+      spotifyConnected
+    );
+
+    if (priorUse) {
+      updateSetting('firstLaunchFinished', true).catch(() => {});
+      setShowOnboarding(false);
+      return;
+    }
+
+    // Only show when the flag is explicitly missing on a fresh profile.
+    if (appData.firstLaunchFinished === undefined) {
       setShowOnboarding(true);
     }
-  }, [appData]);
+  }, [appData, spotifyConnected]);
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error);
@@ -81,7 +107,7 @@ function App() {
       <div data-tauri-drag-region className="h-screen w-screen bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden">
         {/* App Titlebar for Loading Screen */}
         <div data-tauri-drag-region className="absolute top-0 inset-x-0 h-10 flex items-center justify-between px-4">
-            <span data-tauri-drag-region className="text-white/20 text-[10px] font-black tracking-widest uppercase">Crimson</span>
+            <span data-tauri-drag-region className="text-white/20 text-[10px] font-black tracking-widest uppercase">Crimsons</span>
             <button 
                 onClick={async () => {
                     const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -265,7 +291,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <Cpu className="w-3.5 h-3.5 text-white/20" />
-            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">{appVersion} Crimson</span>
+            <span className="text-[10px] font-bold text-white/30 tracking-widest uppercase">{appVersion} Crimsons</span>
           </div>
         </div>
 
@@ -342,7 +368,9 @@ function App() {
         <OnboardingModal 
           onClose={() => setShowOnboarding(false)} 
           updateSetting={updateSetting} 
-          appData={appData} 
+          appData={appData}
+          loginSpotify={loginSpotify}
+          spotifyConnected={spotifyConnected}
         />
       )}
     </div>

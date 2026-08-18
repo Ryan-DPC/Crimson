@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
     Sparkles, Key, Music, MessageSquare, 
-    ArrowRight, Check, Compass, ShieldCheck 
+    ArrowRight, Check, Compass, ShieldCheck, Activity
 } from 'lucide-react';
 import logoRed from '../../assets/logos/logo_red_transparent.png';
 
@@ -9,44 +9,64 @@ interface OnboardingModalProps {
     onClose: () => void;
     updateSetting: (key: string, value: any) => Promise<void>;
     appData: any;
+    loginSpotify: (clientId: string, clientSecret: string) => Promise<void>;
+    spotifyConnected: boolean;
 }
 
-export default function OnboardingModal({ onClose, updateSetting, appData }: OnboardingModalProps) {
+export default function OnboardingModal({
+    onClose,
+    updateSetting,
+    appData,
+    loginSpotify,
+    spotifyConnected,
+}: OnboardingModalProps) {
     const [step, setStep] = useState(1);
     const [geminiKey, setGeminiKey] = useState(appData?.geminiApiKey || '');
     const [isSaving, setIsSaving] = useState(false);
     const [spotifyId, setSpotifyId] = useState(appData?.spotifyClientId || '');
-    const [spotifySecret, setSpotifySecret] = useState(appData?.spotifyClientSecret || '');
+    const [spotifySecret, setSpotifySecret] = useState('');
     const [spotifyError, setSpotifyError] = useState<string | null>(null);
+    const [spotifyPending, setSpotifyPending] = useState(false);
+    const hasSavedSecret = !!appData?.spotifyClientSecret;
+
+    useEffect(() => {
+        if (appData?.spotifyClientId && !spotifyId) {
+            setSpotifyId(appData.spotifyClientId);
+        }
+    }, [appData?.spotifyClientId]);
+
+    useEffect(() => {
+        if (spotifyConnected && spotifyPending) {
+            setSpotifyPending(false);
+            setSpotifyError(null);
+        }
+    }, [spotifyConnected, spotifyPending]);
 
     // Chaque installation utilise l'application Spotify de son proprietaire :
     // aucun identifiant n'est fourni par Crimsons.
     const handleConnectSpotify = async () => {
-        const clientId = spotifyId.trim();
-        const clientSecret = spotifySecret.trim();
+        const clientId = spotifyId.trim() || (appData?.spotifyClientId || '');
+        const clientSecret = spotifySecret.trim() || (appData?.spotifyClientSecret || '');
 
-        if (!clientId || !clientSecret) {
+        if (!clientId || (!clientSecret && !hasSavedSecret)) {
             setSpotifyError("Renseignez le Client ID et le Client Secret de votre application Spotify.");
             return;
         }
         setSpotifyError(null);
+        setSpotifyPending(true);
 
-        await updateSetting('spotifyClientId', clientId);
-        await updateSetting('spotifyClientSecret', clientSecret);
         try {
             localStorage.removeItem('spotify_client_secret');
             localStorage.removeItem('spotify_client_id');
         } catch { /* ignore */ }
 
-        const redirectUri = 'http://127.0.0.1:40510/callback';
-        const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-modify-public playlist-modify-private playlist-read-private';
-        const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
-
         try {
-            const { open } = await import('@tauri-apps/plugin-shell');
-            await open(authUrl);
+            // Persists credentials + pushes SPOTIFY_CREDENTIALS to the sidecar,
+            // then opens OAuth — same path as Paramètres.
+            await loginSpotify(clientId, clientSecret);
         } catch (e) {
             console.error("Failed to open Spotify auth", e);
+            setSpotifyPending(false);
             setSpotifyError("Impossible d'ouvrir la page d'autorisation Spotify.");
         }
     };
@@ -117,7 +137,7 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                         </div>
 
                         <p className="text-xs text-white/60 leading-relaxed mb-6 uppercase tracking-wider font-semibold">
-                            Crimson utilise l'IA Google Gemini pour analyser votre draft en temps réel et proposer les meilleurs builds. Vous pouvez obtenir une clé d'API gratuite en quelques secondes.
+                            Crimsons utilise l'IA Google Gemini pour analyser votre draft en temps réel et proposer les meilleurs builds. Vous pouvez obtenir une clé d'API gratuite en quelques secondes.
                         </p>
 
                         <div className="bg-black/40 border border-white/5 p-5 rounded-2xl flex items-center justify-between mb-8">
@@ -163,12 +183,12 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                             </div>
                             <div>
                                 <h2 className="text-xl font-black text-white uppercase tracking-widest">Associer vos services</h2>
-                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Optionnel - Intégrations multimédia</p>
+                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Une fois · LoL auto · Spotify &amp; Discord = Premium</p>
                             </div>
                         </div>
 
-                        <p className="text-xs text-white/60 leading-relaxed mb-8 uppercase tracking-wider font-semibold">
-                            Connectez vos applications favorites pour les contrôler directement depuis l'application ou votre Stream Deck en jeu.
+                        <p className="text-xs text-white/60 leading-relaxed mb-6 uppercase tracking-wider font-semibold">
+                            League of Legends se connecte tout seul dès que le client est ouvert. Spotify se configure une seule fois ici. Discord s’active ensuite dans Crimsons (Paramètres → Plugins), pas dans Discord.
                         </p>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
@@ -177,66 +197,97 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex flex-col">
                                         <span className="text-xs font-black text-white uppercase tracking-widest">Spotify</span>
-                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Overlay Paroles & Musique</span>
+                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Setup unique · Premium pour StreamDock</span>
                                     </div>
                                     <Music className="w-5 h-5 text-green-500" />
                                 </div>
 
-                                <a
-                                    href="https://developer.spotify.com/dashboard"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1.5 text-red-500 hover:text-red-400 text-[8px] font-black uppercase tracking-widest transition-colors mb-3"
-                                >
-                                    <Compass size={10} /> Créer votre application Spotify
-                                </a>
-                                <p className="text-[8px] text-white/30 uppercase font-black tracking-widest mb-3 leading-relaxed">
-                                    URL de redirection à y déclarer :<br />
-                                    <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
-                                </p>
+                                {spotifyConnected ? (
+                                    <div className="flex flex-col gap-4 flex-1 justify-center">
+                                        <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl border bg-green-500/10 border-green-500/20 text-green-500">
+                                            <Activity className="w-3.5 h-3.5 animate-pulse" />
+                                            <span className="text-[10px] font-black uppercase tracking-tighter">Connecté — jetons enregistrés</span>
+                                        </div>
+                                        <p className="text-[8px] text-white/40 uppercase font-black tracking-widest leading-relaxed">
+                                            Activez Spotify dans Paramètres → Plugins (Hub) pour le contrôle StreamDock.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest mb-3 leading-relaxed space-y-1.5 list-decimal list-inside">
+                                            <li>
+                                                <a
+                                                    href="https://developer.spotify.com/dashboard"
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-red-500 hover:text-red-400"
+                                                >
+                                                    Créer une app Spotify Developer
+                                                </a>
+                                            </li>
+                                            <li>
+                                                Redirect URI :{' '}
+                                                <code className="text-white/50 normal-case tracking-normal">http://127.0.0.1:40510/callback</code>
+                                            </li>
+                                            <li>Coller Client ID + Secret ci-dessous</li>
+                                            <li>Cliquer Associer → autoriser dans le navigateur</li>
+                                        </ol>
 
-                                <div className="flex flex-col gap-2 mb-3">
-                                    <input
-                                        type="text"
-                                        value={spotifyId}
-                                        onChange={(e) => setSpotifyId(e.target.value)}
-                                        placeholder="Client ID"
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
-                                    />
-                                    <input
-                                        type="password"
-                                        value={spotifySecret}
-                                        onChange={(e) => setSpotifySecret(e.target.value)}
-                                        placeholder="Client Secret"
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
-                                    />
-                                </div>
+                                        <div className="flex flex-col gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={spotifyId}
+                                                onChange={(e) => setSpotifyId(e.target.value)}
+                                                placeholder="Client ID"
+                                                autoComplete="off"
+                                                spellCheck={false}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
+                                            />
+                                            <input
+                                                type="password"
+                                                value={spotifySecret}
+                                                onChange={(e) => setSpotifySecret(e.target.value)}
+                                                placeholder={hasSavedSecret ? 'Enregistré — laisser vide' : 'Client Secret'}
+                                                autoComplete="off"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-mono text-white outline-none focus:border-green-600 transition-colors"
+                                            />
+                                        </div>
 
-                                {spotifyError && (
-                                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-3 leading-relaxed">{spotifyError}</p>
+                                        {spotifyError && (
+                                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-3 leading-relaxed">{spotifyError}</p>
+                                        )}
+                                        {spotifyPending && !spotifyError && (
+                                            <p className="text-[8px] font-black text-yellow-400/80 uppercase tracking-widest mb-3 leading-relaxed">
+                                                Autorisez Spotify dans le navigateur… en attente de confirmation
+                                            </p>
+                                        )}
+
+                                        <button
+                                            onClick={handleConnectSpotify}
+                                            disabled={!(spotifyId.trim() || appData?.spotifyClientId) || !(spotifySecret.trim() || hasSavedSecret) || spotifyPending}
+                                            className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                        >
+                                            {spotifyPending ? 'En attente…' : 'Associer Spotify'}
+                                        </button>
+                                    </>
                                 )}
-
-                                <button
-                                    onClick={handleConnectSpotify}
-                                    disabled={!spotifyId.trim() || !spotifySecret.trim()}
-                                    className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    Associer Spotify
-                                </button>
                             </div>
 
-                            {/* Discord */}
+                            {/* Discord — optionnel, pas de setup OAuth ici */}
                             <div className="bg-black/40 border border-white/5 p-6 rounded-3xl flex flex-col justify-between hover:border-white/10 transition-colors">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex flex-col">
                                         <span className="text-xs font-black text-white uppercase tracking-widest">Discord</span>
-                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Connexion Automatique</span>
+                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-widest mt-1">Optionnel · Premium</span>
                                     </div>
                                     <MessageSquare className="w-5 h-5 text-indigo-400" />
                                 </div>
-                                <div className="py-3 bg-white/5 border border-white/5 text-white/40 text-[9px] font-black uppercase tracking-widest text-center rounded-xl">
-                                    Détection Automatique
-                                </div>
+                                <ol className="text-[8px] text-white/40 uppercase font-black tracking-widest leading-relaxed space-y-1.5 list-decimal list-inside">
+                                    <li>Ouvre l’app Discord sur le PC (pas de menu Plugin dans Discord)</li>
+                                    <li>Dans Crimsons : Paramètres → Plugins → activer Discord</li>
+                                    <li>Mute / deafen = IPC, sans OAuth</li>
+                                    <li>Touches StreamDock Discord = plugin optionnel à part</li>
+                                </ol>
                             </div>
                         </div>
 
@@ -256,15 +307,18 @@ export default function OnboardingModal({ onClose, updateSetting, appData }: Onb
                             <ShieldCheck size={40} />
                         </div>
                         <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-4">Configuration Terminée !</h2>
-                        <p className="text-xs text-white/50 max-w-sm leading-relaxed mb-10 uppercase tracking-wider font-semibold">
-                            Crimson est désormais configuré et prêt à l'emploi. Lancez League of Legends pour voir la magie opérer.
+                        <p className="text-xs text-white/50 max-w-sm leading-relaxed mb-4 uppercase tracking-wider font-semibold">
+                            Lancez League of Legends : Crimsons se connecte automatiquement. Après un achat Premium, utilisez « Actualiser le statut » dans Paramètres — aucune réinstallation.
+                        </p>
+                        <p className="text-[10px] text-white/30 max-w-sm leading-relaxed mb-10 uppercase tracking-wider font-semibold">
+                            StreamDock : installez les plugins Crimsons (LoL + Spotify) fournis avec l’app, puis redémarrez Stream Dock.
                         </p>
                         <button 
                             onClick={handleNext}
                             disabled={isSaving}
                             className="flex items-center gap-3 px-10 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl border border-white/10 transition-all shadow-lg hover:shadow-[0_0_30px_rgba(220,38,38,0.3)]"
                         >
-                            <span className="text-xs font-black tracking-widest uppercase">Lancer Crimson</span>
+                            <span className="text-xs font-black tracking-widest uppercase">Lancer Crimsons</span>
                             <Check size={14} />
                         </button>
                     </div>

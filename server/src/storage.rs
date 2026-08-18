@@ -93,6 +93,12 @@ lazy_static::lazy_static! {
     static ref CACHED_APP_DATA: std::sync::RwLock<Option<(AppData, std::time::SystemTime)>> = std::sync::RwLock::new(None);
 }
 
+pub fn invalidate_cache() {
+    if let Ok(mut cache) = CACHED_APP_DATA.write() {
+        *cache = None;
+    }
+}
+
 /// Copy missing files from a legacy AppData folder into the canonical one.
 /// Same policy as the Tauri host: never overwrite files that already exist.
 fn migrate_legacy_appdata(from: &Path, to: &Path) {
@@ -164,16 +170,36 @@ pub fn load_data_from_path(path: PathBuf) -> AppData {
         }
     }
 
-    let mut loaded_data = AppData::default();
+    let mut loaded_data: Option<AppData> = None;
     for _ in 0..5 {
         if let Ok(content) = fs::read_to_string(&path) {
+            if content.trim().is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                continue;
+            }
             if let Ok(data) = serde_json::from_str(&content) {
-                loaded_data = data;
+                loaded_data = Some(data);
                 break;
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+
+    let loaded_data = match loaded_data {
+        Some(data) => data,
+        None => {
+            if path.exists() {
+                // Do NOT cache Default over a real file — a later save would wipe
+                // firstLaunchFinished / plugins / Spotify credentials.
+                tracing::warn!(
+                    "[storage] Failed to parse {:?} after retries; refusing Default cache",
+                    path
+                );
+                return AppData::default();
+            }
+            AppData::default()
+        }
+    };
 
     let final_mtime = fs::metadata(&path)
         .and_then(|m| m.modified())

@@ -100,6 +100,38 @@ fn query_param(request: &str, key: &str) -> Option<String> {
     })
 }
 
+fn http_header<'a>(request: &'a str, name: &str) -> Option<&'a str> {
+    for line in request.lines() {
+        let Some((k, v)) = line.split_once(':') else { continue };
+        if k.eq_ignore_ascii_case(name) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn cors_headers(request: &str) -> String {
+    match http_header(request, "Origin") {
+        Some(o) if is_remote_web_origin(o) => String::new(),
+        Some(o) => format!("Access-Control-Allow-Origin: {}\r\nVary: Origin\r\n", o),
+        None => "Access-Control-Allow-Origin: *\r\n".to_string(),
+    }
+}
+
+fn reject_remote_web(request: &str) -> bool {
+    http_header(request, "Origin").is_some_and(is_remote_web_origin)
+}
+
+fn http_forbidden(request: &str) -> String {
+    format!(
+        "HTTP/1.1 403 Forbidden\r\n{}Content-Type: text/plain\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 9\r\n\r\nForbidden",
+        cors_headers(request)
+    )
+}
+
 /// Boucle d'acceptation, partagee par les ecoutes IPv4 et IPv6.
 async fn accept_loop(
     listener: TcpListener,
@@ -135,12 +167,45 @@ async fn accept_loop(
                 // Secrets never travel in the query string. GET uses credentials
                 // already stored in data.json / spotify_cache; POST accepts a JSON
                 // body { clientId, clientSecret } from the property inspector.
+                // Local-only WS auth bootstrap for StreamDock HTML plugins that
+                // cannot read %APPDATA%\com.laoy.crimsons\auth.token (no Node/ActiveX).
+                // Bound to 127.0.0.1 already — same trust boundary as the token file.
+                if request.starts_with("GET /local/ws-token") {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut stream = stream;
+                    let mut drop_buf = [0; 4096];
+                    let _ = stream.read(&mut drop_buf).await;
+                    let response = if reject_remote_web(&request) {
+                        http_forbidden(&request)
+                    } else {
+                        let token = crate::auth::current_token().unwrap_or_default();
+                        let cors = cors_headers(&request);
+                        if token.is_empty() {
+                            format!("HTTP/1.1 404 Not Found\r\n{cors}Content-Type: text/plain\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                        } else {
+                            format!(
+                                "HTTP/1.1 200 OK\r\n{cors}Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                token.len(),
+                                token
+                            )
+                        }
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                    return;
+                }
+
                 if request.starts_with("OPTIONS /authorization") {
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
                     let mut stream = stream;
                     let mut drop_buf = [0; 4096];
                     let _ = stream.read(&mut drop_buf).await;
-                    let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                    let cors = cors_headers(&request);
+                    let response = if reject_remote_web(&request) {
+                        http_forbidden(&request)
+                    } else {
+                        format!("HTTP/1.1 204 No Content\r\n{cors}Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                    };
                     let _ = stream.write_all(response.as_bytes()).await;
                     let _ = stream.shutdown().await;
                     return;
@@ -148,6 +213,14 @@ async fn accept_loop(
                 if request.starts_with("GET /authorization") || request.starts_with("POST /authorization") {
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
                     let is_post = request.starts_with("POST ");
+                    if reject_remote_web(&request) {
+                        let mut stream = stream;
+                        let mut drop_buf = [0; 4096];
+                        let _ = stream.read(&mut drop_buf).await;
+                        let _ = stream.write_all(http_forbidden(&request).as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
                     let mut stream = stream;
                     let mut drop_buf = [0; 8192];
                     let n = stream.read(&mut drop_buf).await.unwrap_or(0);
@@ -209,7 +282,8 @@ async fn accept_loop(
                         if is_post {
                             let body = json!({ "redirect": auth_url }).to_string();
                             format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                cors_headers(&request),
                                 body.len(), body
                             )
                         } else {
@@ -217,7 +291,7 @@ async fn accept_loop(
                         }
                     } else {
                         tracing::warn!("[SPOTIFY] Autorisation demandee sans identifiants en store");
-                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret dans Crimson ou le Property Inspector.</p></div></body></html>";
+                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Identifiants manquants</h1><p>Renseignez le Client ID et le Client Secret dans Crimsons ou le Property Inspector.</p></div></body></html>";
                         format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
                     };
                     let _ = stream.write_all(response.as_bytes()).await;
@@ -230,26 +304,47 @@ async fn accept_loop(
                     if let Some(code_start) = request.find("code=") {
                         let code = request[code_start + 5..].split_whitespace().next().unwrap_or("");
                         let code = code.split('&').next().unwrap_or(code);
-                        tracing::info!("[SPOTIFY] Code d'autorisation extrait, diffuse a l'application");
-                        let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
+                        tracing::info!("[SPOTIFY] Code d'autorisation extrait");
 
-                        // Le serveur echange lui-meme le code. L'application le
-                        // fait aussi de son cote quand elle est ouverte, mais un
-                        // plugin StreamDock peut declencher le flux sans elle :
-                        // l'echange ne doit pas dependre de sa presence.
-                        if let Some(s) = &spotify_clone {
+                        // Exchange on the server first (single-use code). Only
+                        // notify the app after success so it does not race a
+                        // second exchange that would invalidate the grant.
+                        let exchange_ok = if let Some(s) = &spotify_clone {
                             match s.exchange_code(code.to_string()).await {
-                                Ok(_) => tracing::info!("[SPOTIFY] Echange du code reussi cote serveur, jetons enregistres"),
-                                Err(e) => tracing::warn!("[SPOTIFY] Echange du code refuse cote serveur : {}", e),
+                                Ok(_) => {
+                                    tracing::info!("[SPOTIFY] Echange du code reussi cote serveur, jetons enregistres");
+                                    let _ = sender_clone.0.send(json!({
+                                        "type": "SPOTIFY_CALLBACK_RESULT",
+                                        "ok": true
+                                    }).to_string());
+                                    true
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[SPOTIFY] Echange du code refuse cote serveur : {}", e);
+                                    let _ = sender_clone.0.send(json!({
+                                        "type": "SPOTIFY_CALLBACK_RESULT",
+                                        "ok": false,
+                                        "error": e.to_string()
+                                    }).to_string());
+                                    false
+                                }
                             }
-                        }
+                        } else {
+                            // No in-process Spotify service — fall back to the app.
+                            let _ = sender_clone.0.send(json!({ "type": "SPOTIFY_CALLBACK_CODE", "code": code }).to_string());
+                            false
+                        };
 
                         use tokio::io::{AsyncReadExt, AsyncWriteExt};
                         let mut stream = stream;
                         let mut drop_buf = [0; 4096];
                         let _ = stream.read(&mut drop_buf).await; // Consume the incoming HTTP request headers to prevent TCP RST on close
-                        let body = "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div><h1>Spotify Connected!</h1><p>You can close this window now.</p></div></body></html>";
-                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+                        let body = if exchange_ok {
+                            "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div style='text-align:center'><h1 style='color:#22c55e'>Spotify connecté</h1><p>Vous pouvez fermer cette fenêtre.</p></div></body></html>"
+                        } else {
+                            "<html><body style='background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;'><div style='text-align:center'><h1 style='color:#ef4444'>Échec de connexion Spotify</h1><p>Réessayez depuis Crimsons → Paramètres (identifiants Client ID / Secret).</p></div></body></html>"
+                        };
+                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
                         let _ = stream.write_all(response.as_bytes()).await;
                         let _ = stream.shutdown().await;
                         return;
@@ -265,6 +360,29 @@ async fn accept_loop(
 /// Vrai si l'origine designe la machine locale. Couvre la webview Tauri, qui
 /// se presente sous http://tauri.localhost sur Windows, et les plugins
 /// StreamDock, charges depuis des fichiers locaux.
+/// Strip bearer / refresh tokens from WS payloads before they hit the log file.
+fn redact_ws_payload_for_log(value: &serde_json::Value) -> String {
+    const SENSITIVE: &[&str] = &[
+        "access_token",
+        "refresh_token",
+        "token",
+        "client_secret",
+        "authorization",
+        "password",
+    ];
+    let mut cloned = value.clone();
+    if let Some(obj) = cloned.as_object_mut() {
+        for key in SENSITIVE {
+            if let Some(v) = obj.get_mut(*key) {
+                if v.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                    *v = serde_json::Value::String("***".to_string());
+                }
+            }
+        }
+    }
+    cloned.to_string()
+}
+
 fn is_local_origin(origin: &str) -> bool {
     let lower = origin.trim().to_ascii_lowercase();
 
@@ -297,9 +415,39 @@ fn is_local_origin(origin: &str) -> bool {
         || host.ends_with(".localhost")
 }
 
+/// Browser fetch from a non-local website. `file://`, `null` (file pages) and a
+/// missing Origin stay allowed so StreamDock HTML inspectors keep working.
+fn is_remote_web_origin(origin: &str) -> bool {
+    let t = origin.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lower = t.to_ascii_lowercase();
+    if lower == "null" || lower == "file://" || lower.starts_with("file:") {
+        return false;
+    }
+    !is_local_origin(t)
+}
+
 #[cfg(test)]
 mod origin_tests {
-    use super::is_local_origin;
+    use super::{is_local_origin, is_remote_web_origin, redact_ws_payload_for_log, reject_remote_web};
+    use serde_json::json;
+
+    #[test]
+    fn redact_ws_payload_masque_les_jetons() {
+        let raw = json!({
+            "type": "AUTH_SESSION",
+            "access_token": "super-secret",
+            "refresh_token": "also-secret",
+            "plugin": "spotify"
+        });
+        let redacted = redact_ws_payload_for_log(&raw);
+        assert!(redacted.contains("***"));
+        assert!(!redacted.contains("super-secret"));
+        assert!(!redacted.contains("also-secret"));
+        assert!(redacted.contains("spotify"));
+    }
 
     #[test]
     fn accepte_les_plugins_streamdock() {
@@ -330,6 +478,14 @@ mod origin_tests {
     fn refuse_les_pages_distantes() {
         assert!(!is_local_origin("https://evil.com"));
         assert!(!is_local_origin("http://example.org:8080"));
+        assert!(is_remote_web_origin("https://evil.com"));
+        assert!(is_remote_web_origin("http://example.org:8080"));
+        assert!(!is_remote_web_origin("file://"));
+        assert!(!is_remote_web_origin("null"));
+        assert!(!is_remote_web_origin("http://127.0.0.1:40510"));
+        assert!(reject_remote_web("POST /authorization HTTP/1.1\r\nOrigin: https://evil.com\r\n\r\n"));
+        assert!(!reject_remote_web("POST /authorization HTTP/1.1\r\nOrigin: file://\r\n\r\n"));
+        assert!(!reject_remote_web("POST /authorization HTTP/1.1\r\n\r\n"));
     }
 
     #[test]
@@ -385,7 +541,11 @@ async fn handle_connection(
             .and_then(|q| {
                 q.split('&').find_map(|pair| {
                     let (k, v) = pair.split_once('=')?;
-                    if k == "token" { Some(v.to_string()) } else { None }
+                    if k == "token" {
+                        Some(urlencoding::decode(v).unwrap_or(std::borrow::Cow::Borrowed(v)).into_owned())
+                    } else {
+                        None
+                    }
                 })
             })
             .unwrap_or_default();
@@ -438,14 +598,39 @@ async fn handle_connection(
         });
         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(heartbeat.to_string().into())).await;
 
+        // Reconcile Spotify association for the UI even when Hub toggle is OFF
+        // (background poll is paused → otherwise Settings stays "Non connecté").
+        if let Some(s) = &spotify {
+            let snap = s.auth_snapshot_state().await;
+            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                json!({ "type": "SPOTIFY_STATE", "data": snap }).to_string().into()
+            )).await;
+        }
+
+        // Push plugin prefs + live entitlement so Hub matches disk/server truth.
+        {
+            let plugins = data.other.get("plugins").cloned().unwrap_or(json!({}));
+            let premium = crate::entitlement::is_premium().await;
+            let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                json!({
+                    "type": "PLUGIN_PREFS",
+                    "plugins": plugins,
+                    "premium": premium,
+                    "spotify_enabled": spotify.as_ref().map(|s| s.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                    "discord_enabled": discord.as_ref().map(|d| d.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                    "lol_enabled": is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                }).to_string().into()
+            )).await;
+        }
+
         // Push current LCU state if connected
         if crate::lcu::is_lcu_connected() {
-            if let Ok(phase_str) = crate::lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None) {
+            if let Ok(phase_str) = crate::lcu::lcu_request_async("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None).await {
                 if let Ok(phase) = serde_json::from_str::<serde_json::Value>(&phase_str) {
                     if let Some(p) = phase.as_str() {
                         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(json!({ "type": "GAME_PHASE", "phase": p }).to_string().into())).await;
                         if p == "ChampSelect" {
-                            if let Ok(cs_str) = crate::lcu::lcu_request("GET".into(), "/lol-champ-select/v1/session".into(), None) {
+                            if let Ok(cs_str) = crate::lcu::lcu_request_async("GET".into(), "/lol-champ-select/v1/session".into(), None).await {
                                 if let Ok(session) = serde_json::from_str::<serde_json::Value>(&cs_str) {
                                     let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(json!({ "type": "CHAMP_SELECT_UPDATE", "data": session.clone() }).to_string().into())).await;
                                     
@@ -465,7 +650,7 @@ async fn handle_connection(
                                         }
                                     }
                                     if my_champ_id > 0 {
-                                        if let Ok(champ_json) = crate::lcu::lcu_request("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None) {
+                                        if let Ok(champ_json) = crate::lcu::lcu_request_async("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None).await {
                                             if let Ok(champ_data) = serde_json::from_str::<serde_json::Value>(&champ_json) {
                                                 my_champ_name = champ_data["name"].as_str().unwrap_or("").to_string();
                                             }
@@ -588,7 +773,14 @@ async fn handle_connection(
                                         }
                                     }
 
-                                    tracing::info!("[SD IN] Event: {} Type: {} Payload: {}", evt_name, type_name, text);
+                                    // Never log raw payloads: AUTH_SESSION / SPOTIFY_AUTH carry
+                                    // bearer tokens. Redact sensitive fields before printing.
+                                    tracing::info!(
+                                        "[SD IN] Event: {} Type: {} Payload: {}",
+                                        evt_name,
+                                        type_name,
+                                        redact_ws_payload_for_log(&value)
+                                    );
 
                                     if value["type"] == "TOGGLE_PLUGIN" {
                                         if let (Some(plugin), Some(enabled)) = (value["plugin"].as_str(), value["enabled"].as_bool()) {
@@ -625,8 +817,18 @@ async fn handle_connection(
                                                     if let Some(s) = &spotify {
                                                         s.is_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
                                                         if !enabled {
-                                                            let empty_state = crate::spotify::SpotifyState::default();
-                                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": empty_state }).to_string());
+                                                            // Keep has_token accurate — disabling the Hub
+                                                            // toggle must not look like a disconnect.
+                                                            let has_token = {
+                                                                let client = s.get_client();
+                                                                let lock = client.read().await;
+                                                                lock.access_token.is_some() || lock.refresh_token.is_some()
+                                                            };
+                                                            let idle = crate::spotify::SpotifyState {
+                                                                has_token,
+                                                                ..Default::default()
+                                                            };
+                                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": idle }).to_string());
                                                         } else {
                                                             s.notify.notify_one();
                                                         }
@@ -681,8 +883,8 @@ async fn handle_connection(
                                         continue;
                                     }
 
-                                    // Session Supabase transmise par l'application. Gardee en
-                                    // memoire uniquement : elle ne doit jamais toucher le disque.
+                                    // Session Supabase transmise par l'application. Acces en
+                                    // memoire ; le refresh est conserve pour StreamDock au boot.
                                     if value["type"] == "AUTH_SESSION" {
                                         // Seul le jeton vient du client. L'URL de verification est
                                         // figee dans le binaire : la laisser au client reviendrait a
@@ -697,8 +899,40 @@ async fn handle_connection(
                                                     .map(|t| t.to_string());
                                                 crate::entitlement::set_session(token.to_string(), refresh);
                                             }
-                                            _ => crate::entitlement::clear_session(),
+                                            _ => {
+                                                // Ne jamais effacer le refresh sur un AUTH_SESSION
+                                                // vide : une course UI (session pas encore hydratee)
+                                                // cassait le premium StreamDock et desactivait les
+                                                // services. La deconnexion explicite utilise AUTH_LOGOUT.
+                                                tracing::debug!("[AUTH] AUTH_SESSION sans jeton ignore (pas de clear)");
+                                            }
                                         }
+                                        continue;
+                                    }
+
+                                    if value["type"] == "AUTH_LOGOUT" {
+                                        crate::entitlement::clear_session();
+                                        continue;
+                                    }
+
+                                    if value["type"] == "SYNC_STATE" {
+                                        // Client asked to re-pull server truth after reconnect.
+                                        if let Some(s) = &spotify {
+                                            let snap = s.auth_snapshot_state().await;
+                                            let _ = sender.0.send(json!({ "type": "SPOTIFY_STATE", "data": snap }).to_string());
+                                        }
+                                        let data_path = storage::get_data_path_from_env();
+                                        let data = storage::load_data_from_path(data_path);
+                                        let plugins = data.other.get("plugins").cloned().unwrap_or(json!({}));
+                                        let premium = crate::entitlement::is_premium().await;
+                                        let _ = sender.0.send(json!({
+                                            "type": "PLUGIN_PREFS",
+                                            "plugins": plugins,
+                                            "premium": premium,
+                                            "spotify_enabled": spotify.as_ref().map(|s| s.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                                            "discord_enabled": discord.as_ref().map(|d| d.is_enabled.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false),
+                                            "lol_enabled": is_lol_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                                        }).to_string());
                                         continue;
                                     }
 
@@ -730,7 +964,15 @@ async fn handle_connection(
                                                     }
                                                 }
                                                 s.update_tokens(access.to_string(), refresh.to_string(), expires_in).await;
-                                                tracing::info!("");
+                                                let _ = sender.0.send(json!({
+                                                    "type": "SPOTIFY_STATE",
+                                                    "data": crate::spotify::SpotifyState {
+                                                        has_token: true,
+                                                        ..Default::default()
+                                                    }
+                                                }).to_string());
+                                                s.notify.notify_one();
+                                                tracing::info!("[SPOTIFY] Jetons mis a jour via SPOTIFY_AUTH");
                                             }
                                         }
                                         continue;
@@ -929,6 +1171,7 @@ async fn handle_connection(
                                      if value["event"] == "registerPropertyInspector" {
                                         let s_clone = spotify.clone();
                                         let ws_sender = ws_stream_sender.clone();
+                                        let broadcast = sender.0.clone();
                                         tokio::spawn(async move {
                                             if let Some(s) = s_clone {
                                                 let playlists = s.get_user_playlists().await.unwrap_or_default();
@@ -941,10 +1184,72 @@ async fn handle_connection(
                                                         "authorized": true
                                                     }
                                                 });
-                                                let _ = ws_sender.send(data.to_string()).await;
+                                                let text = data.to_string();
+                                                let _ = ws_sender.send(text.clone()).await;
+                                                let _ = broadcast.send(text);
                                             }
                                         });
                                         continue;
+                                    }
+
+                                    // AJAZZ / HTML plugin owns the StreamDock socket and forwards
+                                    // PI events over crimson WS. Push playlists/devices back so
+                                    // the plugin can ui.send(sendToPropertyInspector) to StreamDock.
+                                    {
+                                        let evt = value["event"].as_str().unwrap_or("");
+                                        let action = value["action"].as_str().unwrap_or("");
+                                        let pi_refresh = evt == "sendToPlugin"
+                                            && matches!(
+                                                value["payload"]["type"].as_str(),
+                                                Some("refresh") | Some("requestPiData")
+                                            );
+                                        if action.starts_with("com.laoy.streamdock.spotify")
+                                            && (evt == "propertyInspectorDidAppear" || pi_refresh)
+                                        {
+                                            let s_clone = spotify.clone();
+                                            let ctx = value["context"].as_str().unwrap_or("").to_string();
+                                            let act = action.to_string();
+                                            let ws_sender = ws_stream_sender.clone();
+                                            let broadcast = sender.0.clone();
+                                            tokio::spawn(async move {
+                                                let (playlists, devices, authorized, error) = if let Some(s) = s_clone {
+                                                    if !crate::entitlement::is_premium().await {
+                                                        tracing::warn!("[SPOTIFY] PI data blocked: premium required");
+                                                        (vec![], vec![], false, Some("premium_required"))
+                                                    } else {
+                                                        let playlists = s.get_user_playlists().await.unwrap_or_default();
+                                                        let devices = s.get_user_devices().await.unwrap_or_default();
+                                                        (playlists, devices, true, None)
+                                                    }
+                                                } else {
+                                                    (vec![], vec![], false, Some("spotify_unavailable"))
+                                                };
+                                                let mut payload = json!({
+                                                    "playlists": playlists,
+                                                    "devices": devices,
+                                                    "authorized": authorized
+                                                });
+                                                if let Some(err) = error {
+                                                    payload["error"] = json!(err);
+                                                }
+                                                let data = json!({
+                                                    "event": "sendToPropertyInspector",
+                                                    "context": ctx,
+                                                    "action": act,
+                                                    "payload": payload
+                                                });
+                                                let text = data.to_string();
+                                                let _ = ws_sender.send(text.clone()).await;
+                                                let _ = broadcast.send(text);
+                                                tracing::info!(
+                                                    "[SPOTIFY] PI data pushed ({} playlists, {} devices, authorized={})",
+                                                    playlists.len(),
+                                                    devices.len(),
+                                                    authorized
+                                                );
+                                            });
+                                            continue;
+                                        }
                                     }
 
                                     if value["type"] == "REGISTER_STREAMDOCK" {
@@ -1158,8 +1463,8 @@ async fn handle_connection(
                                              storage::save_data_to_path(data_path, &data);
                                          } else if value["type"] == "DODGE_GAME" {
                                              // Handle dodge directly via LCU
-                                             let _ = crate::lcu::lcu_request("POST".into(), "/lol-login/v1/session/invoke?destination=lcdsServiceProxy&method=call&args=[\"\",\"teambuilder-draft\",\"quitV2\",\"\"]".into(), Some("".into()));
-                                             let _ = crate::lcu::lcu_request("POST".into(), "/lol-lobby/v1/lobby/custom/cancel-champ-select".into(), Some("".into()));
+                                             let _ = crate::lcu::lcu_request_async("POST".into(), "/lol-login/v1/session/invoke?destination=lcdsServiceProxy&method=call&args=[\"\",\"teambuilder-draft\",\"quitV2\",\"\"]".into(), Some("".into())).await;
+                                             let _ = crate::lcu::lcu_request_async("POST".into(), "/lol-lobby/v1/lobby/custom/cancel-champ-select".into(), Some("".into())).await;
                                          }
 
                                          // Also directly acknowledge it

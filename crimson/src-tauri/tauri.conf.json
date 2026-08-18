@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CRIMSONS",
+  "mainBinaryName": "Crimsons",
   "version": "3.1.4",
   "identifier": "com.laoy.crimsons",
   "build": {
@@ -33,6 +34,8 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "shortDescription": "Crimsons",
+    "longDescription": "Crimsons — desktop assistant for League of Legends, Spotify, and StreamDock",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,7 +44,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/crimson-server"
+      "bin/crimsons-server"
     ],
     "windows": {
       "nsis": {

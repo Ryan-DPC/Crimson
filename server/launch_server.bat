@@ -1,19 +1,22 @@
 @echo off
-REM Server's Launcher
-REM This script can be used to start Server's from command line
-REM It finds the server executable and launches it detached from the console
+REM Launch the CRIMSONS local sidecar (detached).
+REM Prefers the official Program Files install, then local build outputs.
 
 setlocal enabledelayedexpansion
 
-REM Define possible paths
-set "paths[0]=%APPDATA%\..\Local\crimson\bin\crimson-server.exe"
-set "paths[1]=%ProgramFiles%\crimson\bin\crimson-server.exe"
-set "paths[2]=%~dp0crimson-server.exe"
-set "paths[3]=%~dp0bin\crimson-server.exe"
+set "paths[0]=%ProgramFiles%\CRIMSONS\crimsons-server.exe"
+set "paths[1]=%ProgramFiles%\CRIMSONS\crimson-server.exe"
+set "paths[2]=%ProgramFiles(x86)%\CRIMSONS\crimsons-server.exe"
+set "paths[3]=%ProgramFiles(x86)%\CRIMSONS\crimson-server.exe"
+set "paths[4]=%~dp0..\target\release\crimsons-server.exe"
+set "paths[5]=%~dp0..\target\release\crimson-server.exe"
+set "paths[6]=%~dp0crimsons-server.exe"
+set "paths[7]=%~dp0crimson-server.exe"
+set "paths[8]=%~dp0bin\crimsons-server.exe"
+set "paths[9]=%~dp0bin\crimson-server.exe"
 
-REM Try to find the executable
 set "found=0"
-for /l %%i in (0,1,3) do (
+for /l %%i in (0,1,9) do (
     if exist "!paths[%%i]!" (
         set "exe_path=!paths[%%i]!"
         set "found=1"
@@ -22,21 +25,21 @@ for /l %%i in (0,1,3) do (
 )
 
 if !found! equ 0 (
-    echo Error: crimson-server.exe not found in any known path
+    echo Error: crimsons-server.exe not found in any known path
     echo Checked:
-    for /l %%i in (0,1,3) do (
+    for /l %%i in (0,1,9) do (
         echo   - !paths[%%i]!
     )
     exit /b 1
 )
 
 :found
-echo Found Server's at: !exe_path!
+for %%I in ("!exe_path!") do set "exe_dir=%%~dpI"
+echo Found Crimsons Server at: !exe_path!
 echo Launching...
 
-REM Launch detached (similar to the Rust code)
-start "" /d "%~dp0" /b "!exe_path!"
+start "" /d "!exe_dir!" /b "!exe_path!"
 
-echo Server's started successfully
+echo crimsons-server started successfully
 echo Server should be accessible at ws://127.0.0.1:40510
 exit /b 0

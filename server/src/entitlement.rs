@@ -100,6 +100,10 @@ fn forget_refresh_token() {
 async fn refresh_access_token() -> Result<String, String> {
     let refresh = read_refresh_token().ok_or("aucun jeton de rafraichissement conserve")?;
 
+    if SUPABASE_URL.is_empty() || SUPABASE_ANON_KEY.is_empty() {
+        return Err("configuration Supabase absente du binaire".to_string());
+    }
+
     let url = format!(
         "{}/auth/v1/token?grant_type=refresh_token",
         SUPABASE_URL.trim_end_matches('/')
