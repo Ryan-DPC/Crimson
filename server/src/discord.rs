@@ -561,10 +561,9 @@ if ($prev -ne [IntPtr]::Zero) { [Win32]::SetForegroundWindow($prev) | Out-Null }
         Ok(())
     }
 
-    // Linux/macOS equivalent of the Win32 keybd_event path: focus Discord and
-    // send its screenshare shortcut (Ctrl+Shift+F9) via xdotool. Best-effort and
-    // fail-safe — logs if xdotool / an X session is unavailable.
-    #[cfg(not(windows))]
+    // Linux (X11) equivalent of the Win32 keybd_event path: focus Discord and
+    // send its screenshare shortcut (Ctrl+Shift+F9) via xdotool. Fail-safe.
+    #[cfg(all(unix, not(target_os = "macos")))]
     async fn simulate_screenshare_keybind() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use tokio::process::Command;
 
@@ -575,6 +574,32 @@ if ($prev -ne [IntPtr]::Zero) { [Win32]::SetForegroundWindow($prev) | Out-Null }
             Ok(s) if s.success() => Ok(()),
             _ => {
                 tracing::warn!("[DISCORD] screenshare keybind failed (needs xdotool + an X session running Discord)");
+                Ok(())
+            }
+        }
+    }
+
+    // macOS equivalent: activate Discord and send Ctrl+Shift+F9 (key code 101)
+    // via AppleScript / System Events. Requires Accessibility permission.
+    #[cfg(target_os = "macos")]
+    async fn simulate_screenshare_keybind() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use tokio::process::Command;
+
+        match Command::new("osascript")
+            .args([
+                "-e",
+                "tell application \"Discord\" to activate",
+                "-e",
+                "delay 0.2",
+                "-e",
+                "tell application \"System Events\" to key code 101 using {control down, shift down}",
+            ])
+            .status()
+            .await
+        {
+            Ok(s) if s.success() => Ok(()),
+            _ => {
+                tracing::warn!("[DISCORD] screenshare keybind via osascript failed (grant the app Accessibility permission?)");
                 Ok(())
             }
         }
@@ -689,10 +714,10 @@ while ($line = [Console]::ReadLine()) {
         let _ = tx.send(cmd).await;
     }
 
-    // Linux/macOS equivalent: control Discord's own audio stream via
-    // PulseAudio/PipeWire (`pactl`), matching the per-app volume/mute the
-    // Windows COM path provides. Best-effort and fail-safe.
-    #[cfg(not(windows))]
+    // Linux equivalent: control Discord's own audio stream via PulseAudio/
+    // PipeWire (`pactl`), matching the per-app volume/mute the Windows COM path
+    // provides. Best-effort and fail-safe.
+    #[cfg(all(unix, not(target_os = "macos")))]
     async fn send_vol_command(cmd: String) {
         use tokio::process::Command;
         let idx = match Self::find_discord_sink_input().await {
@@ -721,7 +746,7 @@ while ($line = [Console]::ReadLine()) {
     }
 
     /// Find the PulseAudio/PipeWire sink-input index for Discord's audio stream.
-    #[cfg(not(windows))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     async fn find_discord_sink_input() -> Option<String> {
         use tokio::process::Command;
         let out = Command::new("pactl")
@@ -738,7 +763,7 @@ while ($line = [Console]::ReadLine()) {
 
     /// Pure parser for `pactl list sink-inputs` output: returns the index of the
     /// first sink-input whose properties identify it as Discord.
-    #[cfg(not(windows))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn parse_discord_sink_input(text: &str) -> Option<String> {
         let mut current: Option<String> = None;
         for line in text.lines() {
@@ -757,9 +782,20 @@ while ($line = [Console]::ReadLine()) {
         }
         None
     }
+
+    // macOS has no public per-application volume API, so Discord's own
+    // audio-session volume can't be controlled without a third-party audio
+    // driver. Degrade gracefully (log + no-op) rather than faking it.
+    #[cfg(target_os = "macos")]
+    async fn send_vol_command(cmd: String) {
+        tracing::warn!(
+            "[DISCORD] per-app aux volume/mute ('{}') is unsupported on macOS (no per-app volume API)",
+            cmd.trim()
+        );
+    }
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod parity_tests {
     use super::DiscordService;
 
