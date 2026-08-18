@@ -38,32 +38,34 @@ Then, from the repo root:
 - `cargo test -p crimson-server --lib` — the same suite CI runs on Windows (origin/auth + automation + storage tests).
 - Run it with `CRIMSON_DEV=1 ./target/debug/crimson-server` (the dev guard refuses to start otherwise). It listens on `127.0.0.1:40510`. Data/logs go to a per-user dir (`~/.local/share/com.laoy.crimsons` on Linux via `$XDG_DATA_HOME`/`$HOME`; `%APPDATA%\com.laoy.crimsons` on Windows) — never the CWD.
 
-### Launching the full desktop app on Linux
+### Launching the full desktop app (Linux and macOS)
 
-The Tauri desktop app builds and launches on Linux. Extra one-time prerequisites (beyond the sidecar's):
+The Tauri desktop app builds and launches on Linux, and the code paths for macOS are implemented too. From `crimson/` the launch is **one command** on any OS: `npm run dev:desktop` (on the Linux cloud VM prefix `DISPLAY=:1`). That runs `scripts/prepare-sidecar.mjs` (builds `crimson-server` and copies it to `src-tauri/bin/crimson-server-<triple>`, the `externalBin` Tauri expects) and then `tauri dev`. On login the app spawns the sidecar and the in-app SERVER indicator turns green. `npm run build:desktop` does the release build/bundle.
 
-- GTK/webkit stack: `sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`.
-- A display (X/Wayland). On the cloud VM an X server is available at `DISPLAY=:1`.
+Per-OS one-time prerequisites:
 
-Then, from `crimson/`, it is **one command**: `DISPLAY=:1 npm run dev:desktop`. That runs `scripts/prepare-sidecar.mjs` (builds `crimson-server` and copies it to `src-tauri/bin/crimson-server-<triple>`, the `externalBin` Tauri expects) and then `tauri dev`. On login the app spawns the sidecar and the in-app SERVER indicator turns green. `npm run build:desktop` does the release build/bundle.
+- **Linux**: `sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`, plus the sidecar's libs, plus a display (the VM has one at `DISPLAY=:1`). Optional runtime tools for full parity: `pactl` (pipewire/pulseaudio-utils) and `xdotool`.
+- **macOS**: Xcode Command Line Tools (`xcode-select --install`) — Tauri uses the system WebKit, so no GTK. **Not buildable/verifiable on this Linux VM** (no macOS SDK; deps like `openssl-sys` don't cross-compile); the macOS branches must be compiled and tested on a Mac.
 
-Note: `getVersion()` (the footer version) only resolves inside the real Tauri app; in a plain browser it stays at the React default (`1.1.0`/`0.0.0`), which is why a browser view shows a wrong version. The native app shows the real `3.1.4`.
+Note: `getVersion()` (the footer version) only resolves inside the real Tauri app; in a plain browser it stays at the React default (`1.1.0`/`0.0.0`). The native app shows the real `3.1.4`.
 
 ### Cross-platform feature parity
 
-Windows-only OS integrations now have Linux/macOS equivalents (each is fail-safe: it logs and no-ops if the underlying tool/app is missing). Validation column: `unit` = unit test; `live` = validated against a real PulseAudio/X session on the VM.
+Each OS integration below has a per-OS implementation (all fail-safe: log + no-op if the underlying tool/app is missing). Validation: `unit` = unit test; `live` = validated against a real PulseAudio/X session on the VM; `unverified` = written but only compilable/testable on that OS.
 
-| Feature | Windows | Linux/macOS equivalent | Validated | Where |
-| --- | --- | --- | --- | --- |
-| Sidecar autostart at login | HKCU `Run` key (PowerShell) | XDG `~/.config/autostart/crimson-server.desktop` | unit | `crimson/src-tauri/src/commands.rs` |
-| Discord aux volume / mute | Win32 COM audio session | PulseAudio/PipeWire `pactl set-sink-input-{volume,mute}` | unit (parser) + live (`pactl` on a fake Discord stream) | `server/src/discord.rs` |
-| Discord screenshare toggle | Win32 `keybd_event` (Ctrl+Shift+F9) | `xdotool` window activate + key | live (real "Discord"-titled window) | `server/src/discord.rs` |
-| Discord IPC (mute/deafen/status) | named pipe | Unix socket (`$XDG_RUNTIME_DIR/discord-ipc-*`) | `server/src/discord.rs` |
-| Spotify process detection | `Spotify.exe`/`spotifyd.exe` | also `spotify`/`spotifyd` | `server/src/spotify.rs` |
-| spotifyd start / restart | VBScript/exe + `taskkill` | `spotifyd` from PATH + `pkill` | `server/src/spotify.rs` |
-| Per-user data/config dir | `%APPDATA%` | `$XDG_DATA_HOME` / `~/.local/share` | `server/src/storage.rs`, `lcu_commands/src/storage.rs` |
+| Feature | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Sidecar autostart at login | HKCU `Run` key | XDG `~/.config/autostart/*.desktop` (`unit`) | `~/Library/LaunchAgents/*.plist` + `launchctl` (`unverified`) |
+| Discord aux volume / mute | Win32 COM audio | `pactl set-sink-input-{volume,mute}` (`unit`+`live`) | no public per-app volume API → logs + no-op |
+| Discord screenshare toggle | Win32 `keybd_event` | `xdotool` (`live`) | `osascript`/System Events (`unverified`) |
+| Discord IPC (mute/deafen/status) | named pipe | Unix socket (`$XDG_RUNTIME_DIR`) | Unix socket (`$TMPDIR`) — same code |
+| Spotify process detection | `Spotify.exe`/`spotifyd.exe` | `spotify`/`spotifyd` | `Spotify`/`spotifyd` |
+| spotifyd start / restart | VBScript/exe + `taskkill` | `spotifyd` on PATH + `pkill` | same as Linux |
+| Per-user data/config dir | `%APPDATA%` | `$XDG_DATA_HOME`/`~/.local/share` | `~/Library/Application Support` |
 
-### Genuinely Windows/macOS-only (no Linux equivalent possible)
+The `cfg` split is: `#[cfg(windows)]`, `#[cfg(all(unix, not(target_os = "macos")))]` (Linux/other Unix), `#[cfg(target_os = "macos")]`. The Linux build compiling green verifies the shared/Linux paths; the macOS branches are cfg'd out there, so they are hand-reviewed only until built on a Mac.
+
+### Genuinely OS-bound (no cross-platform equivalent)
 
 - **League of Legends / LCU**: Riot's Vanguard anti-cheat blocks Linux, so the client cannot run there at all. Because of that, the `leagueOfLegends` plugin is **default-off on Linux** (`crimson_server::default_lol_enabled()`; default-on for Windows/macOS). The process detection already handles the macOS name (`LeagueClientUx`, no `.exe`), so LCU should work on macOS.
 - **StreamDock**: the host application is Windows/macOS only; there is no Linux host that loads `.sdPlugin` packages. The plugins' JS is cross-platform, but they need the StreamDock host to run.
