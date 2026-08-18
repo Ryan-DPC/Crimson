@@ -733,7 +733,13 @@ while ($line = [Console]::ReadLine()) {
         if !out.status.success() {
             return None;
         }
-        let text = String::from_utf8_lossy(&out.stdout);
+        Self::parse_discord_sink_input(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    /// Pure parser for `pactl list sink-inputs` output: returns the index of the
+    /// first sink-input whose properties identify it as Discord.
+    #[cfg(not(windows))]
+    fn parse_discord_sink_input(text: &str) -> Option<String> {
         let mut current: Option<String> = None;
         for line in text.lines() {
             let l = line.trim_start();
@@ -750,6 +756,39 @@ while ($line = [Console]::ReadLine()) {
             }
         }
         None
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod parity_tests {
+    use super::DiscordService;
+
+    // Sample modeled on real `pactl list sink-inputs` output.
+    const SAMPLE: &str = "Sink Input #12\n\
+\tDriver: PipeWire\n\
+\tOwner Module: n/a\n\
+\tProperties:\n\
+\t\tapplication.name = \"Chromium\"\n\
+\t\tmedia.name = \"Playback\"\n\
+Sink Input #34\n\
+\tDriver: PipeWire\n\
+\tProperties:\n\
+\t\tapplication.name = \"Discord\"\n\
+\t\tapplication.process.binary = \"Discord\"\n\
+\t\tmedia.name = \"WEBRTC VoiceEngine\"\n";
+
+    #[test]
+    fn finds_discord_sink_input_index() {
+        assert_eq!(
+            DiscordService::parse_discord_sink_input(SAMPLE).as_deref(),
+            Some("34")
+        );
+    }
+
+    #[test]
+    fn none_when_no_discord_stream() {
+        let sample = "Sink Input #5\n\tProperties:\n\t\tapplication.name = \"Firefox\"\n";
+        assert!(DiscordService::parse_discord_sink_input(sample).is_none());
     }
 }
 
