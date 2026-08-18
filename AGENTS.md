@@ -49,7 +49,22 @@ Then, from `crimson/`, it is **one command**: `DISPLAY=:1 npm run dev:desktop`. 
 
 Note: `getVersion()` (the footer version) only resolves inside the real Tauri app; in a plain browser it stays at the React default (`1.1.0`/`0.0.0`), which is why a browser view shows a wrong version. The native app shows the real `3.1.4`.
 
-### Still Windows-only (runtime integrations)
+### Cross-platform feature parity
 
-- League Client/LCU (Riot blocks Linux via Vanguard), StreamDock (Windows/macOS host app), and the PowerShell-based Discord aux-audio/screenshare helpers (`server/src/discord.rs`) which no-op-fail on Linux. Core Discord IPC (mute/deafen/voice status) works on Linux when Discord is running.
+Windows-only OS integrations now have Linux/macOS equivalents (each is fail-safe: it logs and no-ops if the underlying tool/app is missing). Validation column: `unit` = unit test; `live` = validated against a real PulseAudio/X session on the VM.
+
+| Feature | Windows | Linux/macOS equivalent | Validated | Where |
+| --- | --- | --- | --- | --- |
+| Sidecar autostart at login | HKCU `Run` key (PowerShell) | XDG `~/.config/autostart/crimson-server.desktop` | unit | `crimson/src-tauri/src/commands.rs` |
+| Discord aux volume / mute | Win32 COM audio session | PulseAudio/PipeWire `pactl set-sink-input-{volume,mute}` | unit (parser) + live (`pactl` on a fake Discord stream) | `server/src/discord.rs` |
+| Discord screenshare toggle | Win32 `keybd_event` (Ctrl+Shift+F9) | `xdotool` window activate + key | live (real "Discord"-titled window) | `server/src/discord.rs` |
+| Discord IPC (mute/deafen/status) | named pipe | Unix socket (`$XDG_RUNTIME_DIR/discord-ipc-*`) | `server/src/discord.rs` |
+| Spotify process detection | `Spotify.exe`/`spotifyd.exe` | also `spotify`/`spotifyd` | `server/src/spotify.rs` |
+| spotifyd start / restart | VBScript/exe + `taskkill` | `spotifyd` from PATH + `pkill` | `server/src/spotify.rs` |
+| Per-user data/config dir | `%APPDATA%` | `$XDG_DATA_HOME` / `~/.local/share` | `server/src/storage.rs`, `lcu_commands/src/storage.rs` |
+
+### Genuinely Windows/macOS-only (no Linux equivalent possible)
+
+- **League of Legends / LCU**: Riot's Vanguard anti-cheat blocks Linux, so the client cannot run there at all. Because of that, the `leagueOfLegends` plugin is **default-off on Linux** (`crimson_server::default_lol_enabled()`; default-on for Windows/macOS). The process detection already handles the macOS name (`LeagueClientUx`, no `.exe`), so LCU should work on macOS.
+- **StreamDock**: the host application is Windows/macOS only; there is no Linux host that loads `.sdPlugin` packages. The plugins' JS is cross-platform, but they need the StreamDock host to run.
 - `tools/integration_tester` and `tools/mock-lcu` are Node helpers that talk to the sidecar WS (`40510`).

@@ -152,7 +152,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&true);
+    // LoL is not a default-on plugin on Linux (Vanguard blocks the client);
+    // Windows/macOS keep it on. See crimson_server::default_lol_enabled.
+    let default_lol = crimson_server::default_lol_enabled();
+    let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&default_lol);
 
     let is_lol_enabled = Arc::new(std::sync::atomic::AtomicBool::new(is_lol_enabled_val));
     let is_auto_accept_enabled = Arc::new(std::sync::atomic::AtomicBool::new(app_data.auto_accept));

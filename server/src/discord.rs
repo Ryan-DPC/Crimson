@@ -518,6 +518,7 @@ impl DiscordService {
         Ok(value)
     }
 
+    #[cfg(windows)]
     async fn simulate_screenshare_keybind() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use std::process::Command;
 
@@ -560,6 +561,25 @@ if ($prev -ne [IntPtr]::Zero) { [Win32]::SetForegroundWindow($prev) | Out-Null }
         Ok(())
     }
 
+    // Linux/macOS equivalent of the Win32 keybd_event path: focus Discord and
+    // send its screenshare shortcut (Ctrl+Shift+F9) via xdotool. Best-effort and
+    // fail-safe — logs if xdotool / an X session is unavailable.
+    #[cfg(not(windows))]
+    async fn simulate_screenshare_keybind() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use tokio::process::Command;
+
+        let script = "wid=$(xdotool search --name Discord 2>/dev/null | head -n1); \
+                      if [ -n \"$wid\" ]; then xdotool windowactivate --sync \"$wid\" 2>/dev/null; sleep 0.2; fi; \
+                      xdotool key ctrl+shift+F9";
+        match Command::new("sh").arg("-c").arg(script).status().await {
+            Ok(s) if s.success() => Ok(()),
+            _ => {
+                tracing::warn!("[DISCORD] screenshare keybind failed (needs xdotool + an X session running Discord)");
+                Ok(())
+            }
+        }
+    }
+
     pub async fn adjust_aux_volume(ticks: i64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let delta = if ticks > 0 { 0.05f32 } else { -0.05f32 };
         Self::send_vol_command(format!("vol {}\n", delta)).await;
@@ -571,6 +591,7 @@ if ($prev -ne [IntPtr]::Zero) { [Win32]::SetForegroundWindow($prev) | Out-Null }
         Ok(())
     }
 
+    #[cfg(windows)]
     async fn send_vol_command(cmd: String) {
         // Hold the guard in a single named binding. Using `if let Some(..) =
         // &*PS_VOL_TX.lock().await` would keep the temporary MutexGuard alive
@@ -667,8 +688,111 @@ while ($line = [Console]::ReadLine()) {
         drop(guard);
         let _ = tx.send(cmd).await;
     }
+
+    // Linux/macOS equivalent: control Discord's own audio stream via
+    // PulseAudio/PipeWire (`pactl`), matching the per-app volume/mute the
+    // Windows COM path provides. Best-effort and fail-safe.
+    #[cfg(not(windows))]
+    async fn send_vol_command(cmd: String) {
+        use tokio::process::Command;
+        let idx = match Self::find_discord_sink_input().await {
+            Some(i) => i,
+            None => {
+                tracing::warn!("[DISCORD] no Discord audio stream found via pactl (is Discord playing audio?)");
+                return;
+            }
+        };
+        let cmd = cmd.trim();
+        if cmd == "mute" {
+            let _ = Command::new("pactl")
+                .args(["set-sink-input-mute", &idx, "toggle"])
+                .status()
+                .await;
+        } else if let Some(rest) = cmd.strip_prefix("vol ") {
+            if let Ok(delta) = rest.trim().parse::<f32>() {
+                let pct = (delta * 100.0).round() as i32;
+                let arg = if pct >= 0 { format!("+{}%", pct) } else { format!("{}%", pct) };
+                let _ = Command::new("pactl")
+                    .args(["set-sink-input-volume", &idx, &arg])
+                    .status()
+                    .await;
+            }
+        }
+    }
+
+    /// Find the PulseAudio/PipeWire sink-input index for Discord's audio stream.
+    #[cfg(not(windows))]
+    async fn find_discord_sink_input() -> Option<String> {
+        use tokio::process::Command;
+        let out = Command::new("pactl")
+            .arg("list")
+            .arg("sink-inputs")
+            .output()
+            .await
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Self::parse_discord_sink_input(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    /// Pure parser for `pactl list sink-inputs` output: returns the index of the
+    /// first sink-input whose properties identify it as Discord.
+    #[cfg(not(windows))]
+    fn parse_discord_sink_input(text: &str) -> Option<String> {
+        let mut current: Option<String> = None;
+        for line in text.lines() {
+            let l = line.trim_start();
+            if let Some(rest) = l.strip_prefix("Sink Input #") {
+                current = Some(rest.trim().to_string());
+            } else if l.to_lowercase().contains("discord")
+                && (l.contains("application.name")
+                    || l.contains("application.process.binary")
+                    || l.contains("media.name"))
+            {
+                if let Some(idx) = current.clone() {
+                    return Some(idx);
+                }
+            }
+        }
+        None
+    }
 }
 
+#[cfg(all(test, not(windows)))]
+mod parity_tests {
+    use super::DiscordService;
+
+    // Sample modeled on real `pactl list sink-inputs` output.
+    const SAMPLE: &str = "Sink Input #12\n\
+\tDriver: PipeWire\n\
+\tOwner Module: n/a\n\
+\tProperties:\n\
+\t\tapplication.name = \"Chromium\"\n\
+\t\tmedia.name = \"Playback\"\n\
+Sink Input #34\n\
+\tDriver: PipeWire\n\
+\tProperties:\n\
+\t\tapplication.name = \"Discord\"\n\
+\t\tapplication.process.binary = \"Discord\"\n\
+\t\tmedia.name = \"WEBRTC VoiceEngine\"\n";
+
+    #[test]
+    fn finds_discord_sink_input_index() {
+        assert_eq!(
+            DiscordService::parse_discord_sink_input(SAMPLE).as_deref(),
+            Some("34")
+        );
+    }
+
+    #[test]
+    fn none_when_no_discord_stream() {
+        let sample = "Sink Input #5\n\tProperties:\n\t\tapplication.name = \"Firefox\"\n";
+        assert!(DiscordService::parse_discord_sink_input(sample).is_none());
+    }
+}
+
+#[cfg(windows)]
 lazy_static::lazy_static! {
     static ref PS_VOL_TX: tokio::sync::Mutex<Option<tokio::sync::mpsc::Sender<String>>> = tokio::sync::Mutex::new(None);
 }

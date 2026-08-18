@@ -109,6 +109,7 @@ fn normalize_exe_path_str(path: &std::path::Path) -> String {
 }
 
 /// Write HKCU Run so login starts the sidecar directly (not the Tauri UI).
+#[cfg(windows)]
 fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
     use std::process::Command;
 
@@ -142,6 +143,46 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
     }
 }
 
+/// Path of the per-user XDG autostart entry — the Linux/macOS equivalent of the
+/// Windows HKCU Run key used to launch the sidecar at login.
+#[cfg(not(windows))]
+fn autostart_desktop_path() -> Result<std::path::PathBuf, String> {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|h| std::path::PathBuf::from(h).join(".config"))
+        })
+        .ok_or_else(|| "No XDG_CONFIG_HOME or HOME set for autostart entry".to_string())?;
+    Ok(base.join("autostart").join("crimson-server.desktop"))
+}
+
+#[cfg(not(windows))]
+fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
+    let path = autostart_desktop_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create autostart dir: {}", e))?;
+    }
+    let entry = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Crimson Server\n\
+         Comment=CRIMSONS background sidecar\n\
+         Exec={}\n\
+         X-GNOME-Autostart-enabled=true\n\
+         NoDisplay=true\n\
+         Terminal=false\n",
+        exe_path
+    );
+    std::fs::write(&path, entry).map_err(|e| format!("Failed to write autostart entry: {}", e))
+}
+
+#[cfg(windows)]
 fn remove_server_registry_run() -> Result<(), String> {
     use std::process::Command;
 
@@ -169,6 +210,17 @@ fn remove_server_registry_run() -> Result<(), String> {
     }
 }
 
+#[cfg(not(windows))]
+fn remove_server_registry_run() -> Result<(), String> {
+    let path = autostart_desktop_path()?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Failed to remove autostart entry: {}", e)),
+    }
+}
+
+#[cfg(windows)]
 fn read_server_registry_run() -> Option<String> {
     use std::process::Command;
 
@@ -197,6 +249,21 @@ fn read_server_registry_run() -> Option<String> {
     } else {
         Some(stdout)
     }
+}
+
+#[cfg(not(windows))]
+fn read_server_registry_run() -> Option<String> {
+    let path = autostart_desktop_path().ok()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("Exec=") {
+            let v = rest.trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn run_value_points_to_existing_exe(run_value: &str) -> bool {
@@ -769,4 +836,41 @@ pub async fn download_music_video(
 
 fn sanitize_filename(name: &str) -> String {
     name.replace(&['\\', '/', ':', '*', '?', '"', '<', '>', '|'][..], "")
+}
+
+#[cfg(all(test, not(windows)))]
+mod autostart_tests {
+    use super::{create_server_registry_run, read_server_registry_run, remove_server_registry_run};
+
+    // Exercises the Linux/macOS XDG-autostart equivalent of the Windows HKCU
+    // Run key: create -> read-back -> remove (idempotent), all under a temp
+    // XDG_CONFIG_HOME so it never touches the real user config.
+    #[test]
+    fn xdg_autostart_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!("crimson_autostart_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("XDG_CONFIG_HOME", &tmp);
+
+        assert!(read_server_registry_run().is_none(), "should start empty");
+
+        let exe = "/opt/crimson/crimson-server";
+        create_server_registry_run(exe).expect("create autostart entry");
+
+        let desktop = tmp.join("autostart").join("crimson-server.desktop");
+        assert!(desktop.exists(), "desktop entry should be written");
+        let body = std::fs::read_to_string(&desktop).unwrap();
+        assert!(body.contains("[Desktop Entry]"));
+        assert!(body.contains(&format!("Exec={}", exe)));
+
+        assert_eq!(read_server_registry_run().as_deref(), Some(exe));
+
+        remove_server_registry_run().expect("remove autostart entry");
+        assert!(!desktop.exists(), "desktop entry should be gone");
+        assert!(read_server_registry_run().is_none());
+        // Removal is idempotent (no error when already absent).
+        remove_server_registry_run().expect("second remove is a no-op");
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
