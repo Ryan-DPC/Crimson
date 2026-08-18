@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
+    "sidecar": "node scripts/prepare-sidecar.mjs",
+    "dev:desktop": "npm run sidecar && tauri dev",
+    "build:desktop": "npm run sidecar -- --release && tauri build",
     "mock:lcu": "node ../../tools/mock-lcu/index.js",
     "test:e2e": "set CRIMSON_MOCK_LCU=true&& tauri dev"
   },
