@@ -141,6 +141,15 @@ fn app_config_base() -> PathBuf {
             return PathBuf::from(appdata);
         }
     }
+    // macOS: the conventional per-user data location.
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.is_empty() {
+                return PathBuf::from(home).join("Library").join("Application Support");
+            }
+        }
+    }
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         if !xdg.is_empty() {
             return PathBuf::from(xdg);
