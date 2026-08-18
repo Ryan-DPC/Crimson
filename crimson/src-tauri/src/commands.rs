@@ -145,7 +145,7 @@ fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
 
 /// Path of the per-user XDG autostart entry — the Linux/macOS equivalent of the
 /// Windows HKCU Run key used to launch the sidecar at login.
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn autostart_desktop_path() -> Result<std::path::PathBuf, String> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .ok()
@@ -161,7 +161,7 @@ fn autostart_desktop_path() -> Result<std::path::PathBuf, String> {
     Ok(base.join("autostart").join("crimson-server.desktop"))
 }
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
     let path = autostart_desktop_path()?;
     if let Some(parent) = path.parent() {
@@ -210,7 +210,7 @@ fn remove_server_registry_run() -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn remove_server_registry_run() -> Result<(), String> {
     let path = autostart_desktop_path()?;
     match std::fs::remove_file(&path) {
@@ -251,7 +251,7 @@ fn read_server_registry_run() -> Option<String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn read_server_registry_run() -> Option<String> {
     let path = autostart_desktop_path().ok()?;
     let content = std::fs::read_to_string(&path).ok()?;
@@ -260,6 +260,98 @@ fn read_server_registry_run() -> Option<String> {
             let v = rest.trim();
             if !v.is_empty() {
                 return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+// --- macOS: LaunchAgent equivalent of the Windows HKCU Run key (login autostart) ---
+
+#[cfg(target_os = "macos")]
+fn launch_agent_path() -> Result<std::path::PathBuf, String> {
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "No HOME set for LaunchAgent".to_string())?;
+    Ok(std::path::PathBuf::from(home)
+        .join("Library")
+        .join("LaunchAgents")
+        .join("com.laoy.crimsons.server.plist"))
+}
+
+#[cfg(target_os = "macos")]
+fn create_server_registry_run(exe_path: &str) -> Result<(), String> {
+    let path = launch_agent_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create LaunchAgents dir: {}", e))?;
+    }
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n\
+         <dict>\n\
+         \t<key>Label</key>\n\
+         \t<string>com.laoy.crimsons.server</string>\n\
+         \t<key>ProgramArguments</key>\n\
+         \t<array>\n\
+         \t\t<string>{}</string>\n\
+         \t</array>\n\
+         \t<key>RunAtLoad</key>\n\
+         \t<true/>\n\
+         </dict>\n\
+         </plist>\n",
+        exe_path
+    );
+    std::fs::write(&path, plist).map_err(|e| format!("Failed to write LaunchAgent: {}", e))?;
+    // Best-effort activation; the plist is read at next login regardless.
+    let _ = std::process::Command::new("launchctl")
+        .arg("load")
+        .arg("-w")
+        .arg(&path)
+        .output();
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn remove_server_registry_run() -> Result<(), String> {
+    let path = launch_agent_path()?;
+    let _ = std::process::Command::new("launchctl")
+        .arg("unload")
+        .arg("-w")
+        .arg(&path)
+        .output();
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Failed to remove LaunchAgent: {}", e)),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_server_registry_run() -> Option<String> {
+    let path = launch_agent_path().ok()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let mut in_args = false;
+    for line in content.lines() {
+        let l = line.trim();
+        if l.contains("ProgramArguments") {
+            in_args = true;
+            continue;
+        }
+        if in_args {
+            if let Some(start) = l.find("<string>") {
+                let after = &l[start + "<string>".len()..];
+                if let Some(end) = after.find("</string>") {
+                    let v = &after[..end];
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+            if l.contains("</array>") {
+                break;
             }
         }
     }
@@ -838,7 +930,7 @@ fn sanitize_filename(name: &str) -> String {
     name.replace(&['\\', '/', ':', '*', '?', '"', '<', '>', '|'][..], "")
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod autostart_tests {
     use super::{create_server_registry_run, read_server_registry_run, remove_server_registry_run};
 
