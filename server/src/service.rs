@@ -35,24 +35,30 @@ pub fn start_auto_accept_service(
             let app_data = storage::load_data_from_path(storage::get_data_path_from_env());
             is_auto_accept_enabled.store(app_data.auto_accept, std::sync::atomic::Ordering::Relaxed);
 
-            if app_data.auto_accept {
-                let _ = check_and_accept(&sender);
-            }
-
-            // Backup poll for pick/ban (LCU WS is primary; this covers missed events).
-            let _ = poll_champ_select_automation();
-            
+            let sender_tick = sender.clone();
+            let auto_accept = app_data.auto_accept;
             loop_count = loop_count.wrapping_add(1);
-            if loop_count % 5 == 0 {
+            let check_stats = if loop_count % 5 == 0 {
                 let has_cached = {
                     let r = LAST_RANK.lock().map(|l| l.is_some()).unwrap_or(false);
                     let s = LAST_SUMMONER.lock().map(|l| l.is_some()).unwrap_or(false);
                     r && s
                 };
-                // Broadcast rank and summoner stats immediately on first connection, or every 60s
-                let check_stats = !has_cached || (loop_count % 60 == 0);
-                let _ = broadcast_state_optimized(&sender, check_stats);
-            }
+                Some(!has_cached || (loop_count % 60 == 0))
+            } else {
+                None
+            };
+
+            // ureq is blocking; keep it off the current_thread runtime.
+            let _ = tokio::task::spawn_blocking(move || {
+                if auto_accept {
+                    let _ = check_and_accept(&sender_tick);
+                }
+                let _ = poll_champ_select_automation();
+                if let Some(check_stats) = check_stats {
+                    let _ = broadcast_state_optimized(&sender_tick, check_stats);
+                }
+            }).await;
         }
     });
 }

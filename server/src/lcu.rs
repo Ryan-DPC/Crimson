@@ -138,6 +138,12 @@ pub fn lcu_request(method: String, endpoint: String, body: Option<String>) -> Re
     }
 }
 
+pub async fn lcu_request_async(method: String, endpoint: String, body: Option<String>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || lcu_request(method, endpoint, body))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
 fn handle_response(response: ureq::Response) -> Result<String, String> {
     LCU_FAIL_COUNT.store(0, Ordering::Relaxed);
     response.into_string().map_err(|e| e.to_string())

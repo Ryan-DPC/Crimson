@@ -4,7 +4,7 @@
 | --- | --- |
 | **Version suivie** | 3.1.4 |
 | **Identifiant canonique** | `com.laoy.crimsons` (AppData + `tauri.conf.json`) ; UI exe `Crimsons.exe` ; sidecar `crimsons-server.exe` |
-| **Dernier audit doc** | 2026-08-13 (identité CRIMSONS / Crimsons.exe / crimsons-server.exe) |
+| **Dernier audit doc** | 2026-08-18 (PR unique : stack #12–#15 + fix CI `discordState.error`) |
 | **Rôle de ce fichier** | Liste honnête des bugs / dettes encore ouverts. Ne pas marquer « corrigé » sans vérification dans le code ou un test manuel. |
 
 Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `F:`.
@@ -70,6 +70,7 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 ### 2. Sécurité locale résiduelle — vol de jeton AppData
 * Tout process du même user Windows peut lire `auth.token` / session Supabase sur disque.
 * Attendu pour un serveur local ; le mode strict bloque les clients **sans** jeton.
+* HTTP `/authorization` et `/local/ws-token` refusent les origines web distantes (CSRF navigateur). Un attaquant local peut toujours lire le jeton.
 
 ### 3. Frontend — interface et CSS
 * Superpositions / manque d’air (ex. Auto Selection vs grille de champions).
@@ -79,10 +80,14 @@ Les chemins monorepo ci-dessous remplacent l’ancienne référence au lecteur `
 * Pas encore de store / download in-app pour Hue, Twitch, etc.
 * Décisions freemium vs payant à trancher avec la communauté.
 
+### 5. Discord Client ID
+* Plus de Client ID Discord en dur : l’utilisateur colle l’Application ID (Developer Portal) dans Hub → Discord.
+* Validé dans le code ; handshake CLOSE opcode 2 affiché dans l’UI Home.
+
 ---
 
 ## Dette outillage (hors produit)
 
-* ESLint frontend : ~100 erreurs historiques — job CI **visible** mais `continue-on-error: true`.
+* ESLint frontend : ~100 erreurs historiques — job CI **visible** mais `continue-on-error: true`. Le **typecheck `tsc` reste bloquant**.
 * Clippy sans `-D warnings`.
-* Couverture tests encore faible hors Origin WS / automation ready-check / entitlements ponctuels.
+* Couverture tests encore faible hors Origin WS / automation ready-check / entitlements / redaction logs / CSRF origin.

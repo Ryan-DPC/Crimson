@@ -100,6 +100,38 @@ fn query_param(request: &str, key: &str) -> Option<String> {
     })
 }
 
+fn http_header<'a>(request: &'a str, name: &str) -> Option<&'a str> {
+    for line in request.lines() {
+        let Some((k, v)) = line.split_once(':') else { continue };
+        if k.eq_ignore_ascii_case(name) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn cors_headers(request: &str) -> String {
+    match http_header(request, "Origin") {
+        Some(o) if is_remote_web_origin(o) => String::new(),
+        Some(o) => format!("Access-Control-Allow-Origin: {}\r\nVary: Origin\r\n", o),
+        None => "Access-Control-Allow-Origin: *\r\n".to_string(),
+    }
+}
+
+fn reject_remote_web(request: &str) -> bool {
+    http_header(request, "Origin").is_some_and(is_remote_web_origin)
+}
+
+fn http_forbidden(request: &str) -> String {
+    format!(
+        "HTTP/1.1 403 Forbidden\r\n{}Content-Type: text/plain\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 9\r\n\r\nForbidden",
+        cors_headers(request)
+    )
+}
+
 /// Boucle d'acceptation, partagee par les ecoutes IPv4 et IPv6.
 async fn accept_loop(
     listener: TcpListener,
@@ -143,15 +175,20 @@ async fn accept_loop(
                     let mut stream = stream;
                     let mut drop_buf = [0; 4096];
                     let _ = stream.read(&mut drop_buf).await;
-                    let token = crate::auth::current_token().unwrap_or_default();
-                    let response = if token.is_empty() {
-                        "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".to_string()
+                    let response = if reject_remote_web(&request) {
+                        http_forbidden(&request)
                     } else {
-                        format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            token.len(),
-                            token
-                        )
+                        let token = crate::auth::current_token().unwrap_or_default();
+                        let cors = cors_headers(&request);
+                        if token.is_empty() {
+                            format!("HTTP/1.1 404 Not Found\r\n{cors}Content-Type: text/plain\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                        } else {
+                            format!(
+                                "HTTP/1.1 200 OK\r\n{cors}Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                token.len(),
+                                token
+                            )
+                        }
                     };
                     let _ = stream.write_all(response.as_bytes()).await;
                     let _ = stream.shutdown().await;
@@ -163,7 +200,12 @@ async fn accept_loop(
                     let mut stream = stream;
                     let mut drop_buf = [0; 4096];
                     let _ = stream.read(&mut drop_buf).await;
-                    let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                    let cors = cors_headers(&request);
+                    let response = if reject_remote_web(&request) {
+                        http_forbidden(&request)
+                    } else {
+                        format!("HTTP/1.1 204 No Content\r\n{cors}Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                    };
                     let _ = stream.write_all(response.as_bytes()).await;
                     let _ = stream.shutdown().await;
                     return;
@@ -171,6 +213,14 @@ async fn accept_loop(
                 if request.starts_with("GET /authorization") || request.starts_with("POST /authorization") {
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
                     let is_post = request.starts_with("POST ");
+                    if reject_remote_web(&request) {
+                        let mut stream = stream;
+                        let mut drop_buf = [0; 4096];
+                        let _ = stream.read(&mut drop_buf).await;
+                        let _ = stream.write_all(http_forbidden(&request).as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
                     let mut stream = stream;
                     let mut drop_buf = [0; 8192];
                     let n = stream.read(&mut drop_buf).await.unwrap_or(0);
@@ -232,7 +282,8 @@ async fn accept_loop(
                         if is_post {
                             let body = json!({ "redirect": auth_url }).to_string();
                             format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                cors_headers(&request),
                                 body.len(), body
                             )
                         } else {
@@ -364,9 +415,23 @@ fn is_local_origin(origin: &str) -> bool {
         || host.ends_with(".localhost")
 }
 
+/// Browser fetch from a non-local website. `file://`, `null` (file pages) and a
+/// missing Origin stay allowed so StreamDock HTML inspectors keep working.
+fn is_remote_web_origin(origin: &str) -> bool {
+    let t = origin.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lower = t.to_ascii_lowercase();
+    if lower == "null" || lower == "file://" || lower.starts_with("file:") {
+        return false;
+    }
+    !is_local_origin(t)
+}
+
 #[cfg(test)]
 mod origin_tests {
-    use super::{is_local_origin, redact_ws_payload_for_log};
+    use super::{is_local_origin, is_remote_web_origin, redact_ws_payload_for_log, reject_remote_web};
     use serde_json::json;
 
     #[test]
@@ -413,6 +478,14 @@ mod origin_tests {
     fn refuse_les_pages_distantes() {
         assert!(!is_local_origin("https://evil.com"));
         assert!(!is_local_origin("http://example.org:8080"));
+        assert!(is_remote_web_origin("https://evil.com"));
+        assert!(is_remote_web_origin("http://example.org:8080"));
+        assert!(!is_remote_web_origin("file://"));
+        assert!(!is_remote_web_origin("null"));
+        assert!(!is_remote_web_origin("http://127.0.0.1:40510"));
+        assert!(reject_remote_web("POST /authorization HTTP/1.1\r\nOrigin: https://evil.com\r\n\r\n"));
+        assert!(!reject_remote_web("POST /authorization HTTP/1.1\r\nOrigin: file://\r\n\r\n"));
+        assert!(!reject_remote_web("POST /authorization HTTP/1.1\r\n\r\n"));
     }
 
     #[test]
@@ -552,12 +625,12 @@ async fn handle_connection(
 
         // Push current LCU state if connected
         if crate::lcu::is_lcu_connected() {
-            if let Ok(phase_str) = crate::lcu::lcu_request("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None) {
+            if let Ok(phase_str) = crate::lcu::lcu_request_async("GET".into(), "/lol-gameflow/v1/gameflow-phase".into(), None).await {
                 if let Ok(phase) = serde_json::from_str::<serde_json::Value>(&phase_str) {
                     if let Some(p) = phase.as_str() {
                         let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(json!({ "type": "GAME_PHASE", "phase": p }).to_string().into())).await;
                         if p == "ChampSelect" {
-                            if let Ok(cs_str) = crate::lcu::lcu_request("GET".into(), "/lol-champ-select/v1/session".into(), None) {
+                            if let Ok(cs_str) = crate::lcu::lcu_request_async("GET".into(), "/lol-champ-select/v1/session".into(), None).await {
                                 if let Ok(session) = serde_json::from_str::<serde_json::Value>(&cs_str) {
                                     let _ = ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(json!({ "type": "CHAMP_SELECT_UPDATE", "data": session.clone() }).to_string().into())).await;
                                     
@@ -577,7 +650,7 @@ async fn handle_connection(
                                         }
                                     }
                                     if my_champ_id > 0 {
-                                        if let Ok(champ_json) = crate::lcu::lcu_request("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None) {
+                                        if let Ok(champ_json) = crate::lcu::lcu_request_async("GET".into(), format!("/lol-game-data/assets/v1/champions/{}.json", my_champ_id), None).await {
                                             if let Ok(champ_data) = serde_json::from_str::<serde_json::Value>(&champ_json) {
                                                 my_champ_name = champ_data["name"].as_str().unwrap_or("").to_string();
                                             }
@@ -1390,8 +1463,8 @@ async fn handle_connection(
                                              storage::save_data_to_path(data_path, &data);
                                          } else if value["type"] == "DODGE_GAME" {
                                              // Handle dodge directly via LCU
-                                             let _ = crate::lcu::lcu_request("POST".into(), "/lol-login/v1/session/invoke?destination=lcdsServiceProxy&method=call&args=[\"\",\"teambuilder-draft\",\"quitV2\",\"\"]".into(), Some("".into()));
-                                             let _ = crate::lcu::lcu_request("POST".into(), "/lol-lobby/v1/lobby/custom/cancel-champ-select".into(), Some("".into()));
+                                             let _ = crate::lcu::lcu_request_async("POST".into(), "/lol-login/v1/session/invoke?destination=lcdsServiceProxy&method=call&args=[\"\",\"teambuilder-draft\",\"quitV2\",\"\"]".into(), Some("".into())).await;
+                                             let _ = crate::lcu::lcu_request_async("POST".into(), "/lol-lobby/v1/lobby/custom/cancel-champ-select".into(), Some("".into())).await;
                                          }
 
                                          // Also directly acknowledge it
