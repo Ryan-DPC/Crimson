@@ -152,7 +152,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&true);
+    // League of Legends can't run on Linux (Riot's Vanguard anti-cheat blocks
+    // it), so LoL is not a default-on plugin there. Windows and macOS — where
+    // the client runs — keep it enabled by default. A user can still opt in.
+    let default_lol = !cfg!(target_os = "linux");
+    let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&default_lol);
 
     let is_lol_enabled = Arc::new(std::sync::atomic::AtomicBool::new(is_lol_enabled_val));
     let is_auto_accept_enabled = Arc::new(std::sync::atomic::AtomicBool::new(app_data.auto_accept));
