@@ -319,7 +319,7 @@ impl SpotifyService {
         if let Ok(sys) = crate::process_scanner::GLOBAL_SYSTEM.lock() {
             sys.processes().values().any(|process| {
                 let name = process.name();
-                name == "Spotify.exe" || name == "spotify.exe" || name == "spotifyd.exe" || name == "spotifyd"
+                name == "Spotify.exe" || name == "spotify.exe" || name == "Spotify" || name == "spotify" || name == "spotifyd.exe" || name == "spotifyd"
             })
         } else {
             false
@@ -857,8 +857,13 @@ impl SpotifyService {
             
             if !restart_triggered {
                 tracing::info!("No devices found in try_activate_any_device. Restarting spotifyd...");
+                #[cfg(windows)]
                 let _ = std::process::Command::new("taskkill")
-                    .args(&["/F", "/IM", "spotifyd.exe"])
+                    .args(["/F", "/IM", "spotifyd.exe"])
+                    .output();
+                #[cfg(not(windows))]
+                let _ = std::process::Command::new("pkill")
+                    .args(["-x", "spotifyd"])
                     .output();
                 
                 self.start_spotifyd();
@@ -1452,6 +1457,28 @@ impl SpotifyService {
     }
 
     pub fn start_spotifyd(&self) {
+        // Linux/macOS: spotifyd is normally installed on PATH; honor a user
+        // config at ~/.config/spotifyd/spotifyd.conf when present.
+        #[cfg(not(windows))]
+        {
+            let mut cmd = std::process::Command::new("spotifyd");
+            cmd.arg("--no-daemon");
+            if let Ok(home) = std::env::var("HOME") {
+                let conf = std::path::Path::new(&home)
+                    .join(".config")
+                    .join("spotifyd")
+                    .join("spotifyd.conf");
+                if conf.exists() {
+                    cmd.arg("--config-path").arg(conf);
+                }
+            }
+            match cmd.spawn() {
+                Ok(_) => tracing::info!("Watchdog started spotifyd from PATH"),
+                Err(e) => tracing::warn!("Watchdog: could not start spotifyd from PATH: {}", e),
+            }
+        }
+
+        #[cfg(windows)]
         if let Ok(appdata) = std::env::var("APPDATA") {
             let vbs_path = std::path::Path::new(&appdata)
                 .join("Microsoft")
@@ -1473,22 +1500,12 @@ impl SpotifyService {
                     .join("spotifyd")
                     .join("spotifyd.conf");
                 if exe_path.exists() && conf_path.exists() {
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        let _ = std::process::Command::new(exe_path)
-                            .arg("--config-path")
-                            .arg(conf_path)
-                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                            .spawn();
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        let _ = std::process::Command::new(exe_path)
-                            .arg("--config-path")
-                            .arg(conf_path)
-                            .spawn();
-                    }
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new(exe_path)
+                        .arg("--config-path")
+                        .arg(conf_path)
+                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                        .spawn();
                     tracing::info!("Watchdog started/restarted spotifyd via direct execution");
                 } else {
                     tracing::warn!("Watchdog: spotifyd.exe or spotifyd.conf not found");
