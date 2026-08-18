@@ -152,10 +152,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // League of Legends can't run on Linux (Riot's Vanguard anti-cheat blocks
-    // it), so LoL is not a default-on plugin there. Windows and macOS — where
-    // the client runs — keep it enabled by default. A user can still opt in.
-    let default_lol = !cfg!(target_os = "linux");
+    // LoL is not a default-on plugin on Linux (Vanguard blocks the client);
+    // Windows/macOS keep it on. See crimson_server::default_lol_enabled.
+    let default_lol = crimson_server::default_lol_enabled();
     let is_lol_enabled_val = *plugins_map.get("leagueOfLegends").unwrap_or(&default_lol);
 
     let is_lol_enabled = Arc::new(std::sync::atomic::AtomicBool::new(is_lol_enabled_val));
